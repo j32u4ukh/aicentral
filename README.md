@@ -1,9 +1,12 @@
 # aicentral
 
-以 [BerriAI/litellm](https://github.com/BerriAI/litellm) 與 [jxnl/instructor](https://github.com/jxnl/instructor) 為核心的 Python 服務專案。
+提供給**其他專案**使用的 Python **AI 能力函式庫**（非業務服務）。設計上參考 [LiteLLM](https://github.com/BerriAI/litellm)（統一 LLM 路由）與 [Instructor](https://github.com/jxnl/instructor)（Pydantic 結構化輸出），並以輕量化實作**合併於本 repo**，**不依賴**上述兩個套件。
 
-- **LiteLLM**：統一呼叫多家 LLM 供應商，可作為 proxy / 路由層。
-- **Instructor**：在 LLM 回應上套用 Pydantic，取得型別安全的結構化輸出。
+- 統一 `complete()` 呼叫多家 LLM
+- `complete_structured()` 回傳驗證過的 Pydantic model
+- 可選 `[gateway]` 額外依賴，提供 OpenAI 相容 HTTP 介面
+
+架構說明見 [`docs/aicentral.md`](docs/aicentral.md)。
 
 ---
 
@@ -33,8 +36,8 @@ aicentral/
 
 | 區塊 | 用途 |
 |------|------|
-| `[project]` | 套件名稱、版本、說明、**執行期依賴**（litellm、instructor、pydantic 等） |
-| `[project.optional-dependencies]` | 可選依賴群組；`dev` 含 pytest、ruff、mypy 等開發工具 |
+| `[project]` | 套件名稱、版本、**執行期依賴**（pydantic、httpx 等，不含 litellm / instructor） |
+| `[project.optional-dependencies]` | `gateway`（FastAPI）、`dev`（pytest、ruff、mypy） |
 | `[build-system]` | 指定用 **hatchling** 將 `src/aicentral` 打包成可安裝的 wheel |
 | `[tool.pytest.ini_options]` | pytest 預設：測試目錄 `tests/`、將 `src` 加入 `PYTHONPATH` |
 | `[tool.ruff]` / `[tool.ruff.lint]` | 程式碼風格與靜態檢查（行寬、import 排序等） |
@@ -49,9 +52,9 @@ pytest                    # 執行測試（設定來自 pyproject.toml）
 ruff check .              # 程式碼檢查
 ```
 
-### `src/aicentral/` — 應用程式套件
+### `src/aicentral/` — 函式庫原始碼
 
-採用 **src layout**：原始碼放在 `src/` 下，避免測試時誤載入專案根目錄的同名模組。`__init__.py` 定義套件版本與對外介面，業務邏輯應集中在此目錄。
+採用 **src layout**。此目錄僅含 AI 能力（core、providers、routing、structured、可選 gateway），**不含**業務服務或領域 API；業務邏輯應在引用 `aicentral` 的專案中實作。
 
 ### `tests/` — 測試
 
@@ -60,18 +63,17 @@ ruff check .              # 程式碼檢查
 ### `.env.example` / `.env`
 
 - **`.env.example`**：可提交至版控的環境變數**範本**（不含真實金鑰）。
-- **`.env`**：本機實際設定，由 `scripts/setup_env.ps1` 從範本複製產生；**勿提交**（已在 `.gitignore`）。
+- **`.env`**：本機實際設定，可手動複製 `.env.example`，或由 `scripts/install_dev.*` 自動建立；**勿提交**（已在 `.gitignore`）。
 
 內含 API 金鑰、LiteLLM proxy 位址、日誌等級等；應用程式透過 `python-dotenv` 載入。
 
-### `scripts/` — 開發輔助腳本
+### `scripts/` — 開發輔助腳本（可選）
 
 | 腳本 | 用途 |
 |------|------|
-| `setup_env.ps1` / `setup_env.sh` | 若尚無 `.env`，從 `.env.example` 建立 |
-| `install_dev.ps1` / `install_dev.sh` | 建立 `.venv` 並以可編輯模式安裝專案與 `dev` 依賴 |
+| `install_dev.ps1` / `install_dev.sh` | 建立 `.env`（若尚無）、`.venv`，並以可編輯模式安裝 `dev` 依賴 |
 
-詳見 `scripts/README.md`。
+非必要，可改用手動 `pip install -e ".[dev]"`。評估說明見 `scripts/README.md`。
 
 ### `docker/` — 容器化
 
@@ -104,9 +106,9 @@ ruff check .              # 程式碼檢查
 ## 快速開始
 
 ```powershell
-.\scripts\setup_env.ps1       # 建立 .env（若尚未存在）
-.\scripts\install_dev.ps1     # 建立虛擬環境並安裝依賴
+.\scripts\install_dev.ps1     # 可選：.env + 虛擬環境 + 安裝依賴
 .\.venv\Scripts\Activate.ps1
+# 編輯 .env 設定 OPENAI_API_KEY
 pytest
 ```
 
