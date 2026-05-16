@@ -5,10 +5,10 @@ alwaysApply: true
 
 # aicentral
 
-- Python 3.11+ service combining **LiteLLM** (unified LLM proxy/routing) and **Instructor** (structured outputs).
-- Source package: `src/aicentral/`
-- Tests: `tests/`
-- Utility scripts: `scripts/`
-- Docker: `docker/`
-- Use `uv` for dependency management when available; fall back to `pip install -e ".[dev]"`.
-- Never commit `.env` — only `.env.example` and `docker/.env.example`.
+- Python 3.11+ **library** providing AI capabilities to other projects (not a business service repo).
+- Lightweight merge of LiteLLM-style routing + Instructor-style structured outputs; **do not** add `litellm` or `instructor` as pip dependencies.
+- Source package: `src/aicentral/` — core, providers, routing, structured, optional gateway only.
+- No `services/` layer here; domain logic lives in consumer projects.
+- Tests: `tests/`; scripts: `scripts/`; optional Docker: `docker/`.
+- Install: `pip install -e ".[dev]"` or `pip install "aicentral[gateway]"` for HTTP.
+- Never commit `.env` — only `.env.example`.

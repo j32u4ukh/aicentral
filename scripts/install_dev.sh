@@ -1,9 +1,20 @@
 #!/usr/bin/env bash
-# Create .venv and install project with dev dependencies.
+# 本機開發一鍵設定：.env（若缺少）+ .venv + 可編輯安裝
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
+
+if [[ ! -f .env ]]; then
+  if [[ ! -f .env.example ]]; then
+    echo "error: .env.example not found" >&2
+    exit 1
+  fi
+  cp .env.example .env
+  echo "Created .env from .env.example — please set OPENAI_API_KEY."
+else
+  echo ".env already exists — skipping."
+fi
 
 if [[ ! -d .venv ]]; then
   python3 -m venv .venv
