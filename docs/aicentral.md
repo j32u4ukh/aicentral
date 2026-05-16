@@ -3,6 +3,7 @@
 > 參考：[litellm.md](./litellm.md)、[instructor.md](./instructor.md)  
 > 概念說明（`complete()` 用途等）：[concepts.md](./concepts.md)  
 > Gateway 安全規劃：[security.md](./security.md)  
+> v0.1 實作紀錄：[aicentral-v0.1.md](./aicentral-v0.1.md)  
 > 定位：輕量化合併 LiteLLM（統一呼叫）與 Instructor（結構化輸出）的設計思想，**不依賴** `litellm` / `instructor` 套件。
 
 ---
@@ -148,6 +149,8 @@ print(reply)  # str
 `pydantic` / `pydantic-settings` 留到 v0.3（結構化輸出）再引入（若 v0.1 尚未使用可從必要依賴移除）。
 
 ### aicentral-chat（v0.1 消費方）
+
+aicentral-chat 是另一個獨立專案，不要在修改 aicentral 的同時去修改 aicentral-chat，畢竟 aicentral 還沒定版。
 
 與 aicentral 分 repo，職責僅為**示範如何引用函式庫**：
 
