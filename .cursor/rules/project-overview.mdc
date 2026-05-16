@@ -1,0 +1,14 @@
+---
+description: aicentral project context and stack
+alwaysApply: true
+---
+
+# aicentral
+
+- Python 3.11+ service combining **LiteLLM** (unified LLM proxy/routing) and **Instructor** (structured outputs).
+- Source package: `src/aicentral/`
+- Tests: `tests/`
+- Utility scripts: `scripts/`
+- Docker: `docker/`
+- Use `uv` for dependency management when available; fall back to `pip install -e ".[dev]"`.
+- Never commit `.env` — only `.env.example` and `docker/.env.example`.
