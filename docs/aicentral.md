@@ -2,6 +2,7 @@
 
 > 參考：[litellm.md](./litellm.md)、[instructor.md](./instructor.md)  
 > 概念說明（`complete()` 用途等）：[concepts.md](./concepts.md)  
+> Gateway 安全規劃：[security.md](./security.md)  
 > 定位：輕量化合併 LiteLLM（統一呼叫）與 Instructor（結構化輸出）的設計思想，**不依賴** `litellm` / `instructor` 套件。
 
 ---
@@ -254,7 +255,7 @@ v0.1 的 Ollama 可視為 `openai_compat` + `base_url` 指向本機；v0.4 再�
 | `docker/` | 容器化部署（可選） |
 
 Gateway **只委派** `core.complete()`，不重寫 completion 邏輯。  
-不包含 DB、用量報表、guardrails（除非日後另開版本）。
+對外安全（金鑰、限流、IP 白名單等）見 [security.md](./security.md)；第一版 Gateway 至少應達 **S1（強制 Master Key）**。
 
 ---
 
