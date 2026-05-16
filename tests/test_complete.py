@@ -70,7 +70,35 @@ def test_chat_completions_connection_error() -> None:
 
 @patch("aicentral.client.chat_completions", return_value="from client")
 def test_complete_delegates_to_provider(mock_chat: MagicMock) -> None:
-    result = complete([{"role": "user", "content": "test"}], model="llama3.2")
+    result = complete([{"role": "user", "content": "test"}], model="gemma3:4b")
     assert result == "from client"
     mock_chat.assert_called_once()
-    assert mock_chat.call_args.kwargs["model"] == "llama3.2"
+    assert mock_chat.call_args.kwargs["model"] == "gemma3:4b"
+
+
+@patch("aicentral.client.chat_completions", return_value="ok")
+def test_complete_prepends_traditional_chinese_system(mock_chat: MagicMock) -> None:
+    complete([{"role": "user", "content": "hi"}])
+    msgs = mock_chat.call_args.kwargs["messages"]
+    assert msgs[0]["role"] == "system"
+    assert "繁體中文" in msgs[0]["content"]
+
+
+@patch("aicentral.client.chat_completions", return_value="ok")
+def test_complete_keeps_existing_system(mock_chat: MagicMock) -> None:
+    complete(
+        [
+            {"role": "system", "content": "自訂 system"},
+            {"role": "user", "content": "hi"},
+        ]
+    )
+    msgs = mock_chat.call_args.kwargs["messages"]
+    assert msgs[0]["content"] == "自訂 system"
+    assert len(msgs) == 2
+
+
+@patch("aicentral.client.chat_completions", return_value="ok")
+def test_complete_system_empty_disables_prompt(mock_chat: MagicMock) -> None:
+    complete([{"role": "user", "content": "hi"}], system="")
+    msgs = mock_chat.call_args.kwargs["messages"]
+    assert msgs[0]["role"] == "user"
