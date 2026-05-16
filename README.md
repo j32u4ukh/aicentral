@@ -2,11 +2,11 @@
 
 提供給**其他專案**使用的 Python **AI 能力函式庫**（非業務服務）。設計上參考 [LiteLLM](https://github.com/BerriAI/litellm)（統一 LLM 路由）與 [Instructor](https://github.com/jxnl/instructor)（Pydantic 結構化輸出），並以輕量化實作**合併於本 repo**，**不依賴**上述兩個套件。
 
-- 統一 `complete()` 呼叫多家 LLM
+- 統一 `complete()` 呼叫 LLM（**v0.1 預設本機 Ollama**，OpenAI 相容協定）
 - `complete_structured()` 回傳驗證過的 Pydantic model
 - 可選 `[gateway]` 額外依賴，提供 OpenAI 相容 HTTP 介面
 
-架構說明見 [`docs/aicentral.md`](docs/aicentral.md)。
+文件：[`docs/concepts.md`](docs/concepts.md)（核心概念）、[`docs/aicentral.md`](docs/aicentral.md)（架構與版本）。
 
 ---
 
@@ -108,7 +108,7 @@ ruff check .              # 程式碼檢查
 ```powershell
 .\scripts\install_dev.ps1     # 可選：.env + 虛擬環境 + 安裝依賴
 .\.venv\Scripts\Activate.ps1
-# 編輯 .env 設定 OPENAI_API_KEY
+# 確認 Ollama 已啟動，並編輯 .env 的 OLLAMA_MODEL（預設 llama3.2）
 pytest
 ```
 

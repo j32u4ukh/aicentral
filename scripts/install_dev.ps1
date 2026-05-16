@@ -10,7 +10,7 @@ if (-not (Test-Path $EnvFile)) {
         Write-Error ".env.example not found at $Example"
     }
     Copy-Item $Example $EnvFile
-    Write-Host "Created .env from .env.example — please set OPENAI_API_KEY."
+    Write-Host "Created .env from .env.example — ensure Ollama is running and OLLAMA_MODEL is pulled."
 } else {
     Write-Host ".env already exists — skipping."
 }

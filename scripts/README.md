@@ -62,4 +62,4 @@ source .venv/bin/activate
 pytest
 ```
 
-安裝完成後請編輯 `.env`，設定 `OPENAI_API_KEY`（及其他金鑰）。
+安裝完成後請確認 Ollama 已運行，並編輯 `.env` 的 `OLLAMA_MODEL`（須已 `ollama pull`）。

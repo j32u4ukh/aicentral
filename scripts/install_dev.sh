@@ -11,7 +11,7 @@ if [[ ! -f .env ]]; then
     exit 1
   fi
   cp .env.example .env
-  echo "Created .env from .env.example — please set OPENAI_API_KEY."
+  echo "Created .env from .env.example — ensure Ollama is running and OLLAMA_MODEL is pulled."
 else
   echo ".env already exists — skipping."
 fi
