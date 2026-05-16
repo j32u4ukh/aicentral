@@ -1,0 +1,14 @@
+---
+description: aicentral project context and stack
+alwaysApply: true
+---
+
+# aicentral
+
+- Python 3.11+ **library** providing AI capabilities to other projects (not a business service repo).
+- Lightweight merge of LiteLLM-style routing + Instructor-style structured outputs; **do not** add `litellm` or `instructor` as pip dependencies.
+- Source package: `src/aicentral/` — core, providers, routing, structured, optional gateway only.
+- No `services/` layer here; domain logic lives in consumer projects.
+- Tests: `tests/`; scripts: `scripts/`; optional Docker: `docker/`.
+- Install: `pip install -e ".[dev]"` or `pip install "aicentral[gateway]"` for HTTP.
+- Never commit `.env` — only `.env.example`.
