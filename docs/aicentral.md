@@ -98,6 +98,8 @@ tests/
 └── test_complete.py     # mock HTTP 或整合測試（可選）
 ```
 
+> **協定分層**：`complete()` / `core` 使用與供應商無關的統一 `messages` 語意；`providers/` 再轉成各後端**實際** HTTP 協定（參考 LiteLLM 的 `llms/*`）。`openai_compat.py` 只是其中一種適配器——後端本身支援 OpenAI 相容格式（如 Ollama），並非所有 provider 都走同一協定；v0.4 若加 Anthropic 等需另寫 adapter。v0.5 的 Gateway 則像 LiteLLM Proxy，對**外部呼叫方**提供 OpenAI 相容 REST，內部仍委派 `core.complete()`。
+
 **v0.1 刻意不做**：
 
 | 模組 / 設施 | 原因 |
