@@ -1,14 +1,17 @@
-"""Provider 註冊表（v2.0）。"""
+"""Provider 註冊表（v4.0）。"""
 
 from __future__ import annotations
 
 from types import ModuleType
 
 from aicentral.core.errors import ProviderError
-from aicentral.providers import openai
+from aicentral.providers import anthropic, gemini, openai
 
 _REGISTRY: dict[str, ModuleType] = {
     "ollama": openai,
+    "openai": openai,
+    "anthropic": anthropic,
+    "gemini": gemini,
 }
 
 

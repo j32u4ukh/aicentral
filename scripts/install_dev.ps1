@@ -1,18 +1,18 @@
-# 本機開發一鍵設定：.env（若缺少）+ .venv + 可編輯安裝
+# 本機開發一鍵設定：config/secret.yaml（若缺少）+ .venv + 可編輯安裝
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $Root
 
-$Example = Join-Path $Root ".env.example"
-$EnvFile = Join-Path $Root ".env"
-if (-not (Test-Path $EnvFile)) {
-    if (-not (Test-Path $Example)) {
-        Write-Error ".env.example not found at $Example"
+$SecretExample = Join-Path $Root "config\secret.yaml.example"
+$SecretFile = Join-Path $Root "config\secret.yaml"
+if (-not (Test-Path $SecretFile)) {
+    if (-not (Test-Path $SecretExample)) {
+        Write-Error "config/secret.yaml.example not found at $SecretExample"
     }
-    Copy-Item $Example $EnvFile
-    Write-Host "Created .env from .env.example — ensure Ollama is running and OLLAMA_MODEL is pulled."
+    Copy-Item $SecretExample $SecretFile
+    Write-Host "Created config/secret.yaml — edit secrets and ensure Ollama is running (ollama pull gemma4:e2b)."
 } else {
-    Write-Host ".env already exists — skipping."
+    Write-Host "config/secret.yaml already exists — skipping."
 }
 
 $Venv = Join-Path $Root ".venv"

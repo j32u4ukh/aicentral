@@ -20,7 +20,7 @@ aicentral/
 ├── src/aicentral/          # 應用程式原始碼（主套件）
 ├── tests/                  # 單元測試
 ├── .dockerignore           # Docker 建置時排除的檔案
-├── .env.example            # 環境變數範本（複製為 .env 使用）
+├── config/                 # aicentral.yaml + secret.yaml（見 config/secret.yaml.example）
 ├── .python-version         # 建議使用的 Python 版本（3.11）
 ├── pyproject.toml          # 專案定義與工具設定（見下方說明）
 └── README.md               # 本文件
@@ -36,7 +36,7 @@ aicentral/
 
 | 區塊 | 用途 |
 |------|------|
-| `[project]` | 套件名稱、版本、**執行期依賴**（v0.1：`httpx`、`python-dotenv`；不含 litellm / instructor） |
+| `[project]` | 套件名稱、版本、**執行期依賴**（`httpx`、`pydantic`、`pyyaml`；不含 litellm / instructor） |
 | `[project.optional-dependencies]` | `gateway`（FastAPI）、`dev`（pytest、ruff、mypy） |
 | `[build-system]` | 指定用 **hatchling** 將 `src/aicentral` 打包成可安裝的 wheel |
 | `[tool.pytest.ini_options]` | pytest 預設：測試目錄 `tests/`、將 `src` 加入 `PYTHONPATH` |
@@ -60,18 +60,17 @@ ruff check .              # 程式碼檢查
 
 使用 **pytest**。測試檔命名建議 `test_*.py`；執行時會自動把 `src` 加入路徑（由 `pyproject.toml` 的 `[tool.pytest.ini_options]` 設定）。
 
-### `.env.example` / `.env`
+### `config/` — YAML 設定
 
-- **`.env.example`**：可提交至版控的環境變數**範本**（不含真實金鑰）。
-- **`.env`**：本機實際設定，可手動複製 `.env.example`，或由 `scripts/install_dev.*` 自動建立；**勿提交**（已在 `.gitignore`）。
-
-內含 API 金鑰、LiteLLM proxy 位址、日誌等級等；應用程式透過 `python-dotenv` 載入。
+- **`config/aicentral.yaml`**：主設定（可提交）：`defaults`、`model_list`、`router`、`app` 等。
+- **`config/secret.yaml.example`**：機密範本；複製為 **`config/secret.yaml`**（勿提交）。
+- 由 `aicentral.config.loader` 載入；`secret/ollama.api_key` 等形式引用巢狀 secret。
 
 ### `scripts/` — 開發輔助腳本（可選）
 
 | 腳本 | 用途 |
 |------|------|
-| `install_dev.ps1` / `install_dev.sh` | 建立 `.env`（若尚無）、`.venv`，並以可編輯模式安裝 `dev` 依賴 |
+| `install_dev.ps1` / `install_dev.sh` | 建立 `config/secret.yaml`（若尚無）、`.venv`，並以可編輯模式安裝 `dev` 依賴 |
 
 非必要，可改用手動 `pip install -e ".[dev]"`。評估說明見 `scripts/README.md`。
 
@@ -106,9 +105,9 @@ ruff check .              # 程式碼檢查
 ## 快速開始
 
 ```powershell
-.\scripts\install_dev.ps1     # 可選：.env + 虛擬環境 + 安裝依賴
+.\scripts\install_dev.ps1     # 可選：secret.yaml + 虛擬環境 + 安裝依賴
 .\.venv\Scripts\Activate.ps1
-# 確認 Ollama 已啟動，並編輯 .env 的 OLLAMA_MODEL（預設 gemma4:e2b）
+# 確認 Ollama 已啟動；編輯 config/secret.yaml 的 ollama.model（預設 gemma4:e2b）
 pytest
 ```
 

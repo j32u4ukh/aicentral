@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from aicentral.exceptions import ProviderError
@@ -14,15 +16,24 @@ def test_parse_model_with_provider() -> None:
     assert parsed == ("ollama", "gemma4:e2b")
 
 
-def test_parse_model_none_uses_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OLLAMA_MODEL", "from-env")
+def test_parse_model_none_uses_secret_yaml(tmp_path: Path) -> None:
+    from aicentral.config.loader import load_config
+
+    secret = tmp_path / "secret.yaml"
+    secret.write_text("ollama:\n  model: from-secret\n", encoding="utf-8")
+    load_config(path=tmp_path / "x.yaml", secrets_path=secret, reload=True)
     parsed = parse_model(None)
-    assert parsed == (DEFAULT_PROVIDER, "from-env")
+    assert parsed == (DEFAULT_PROVIDER, "from-secret")
 
 
 def test_parse_model_invalid_raises() -> None:
     with pytest.raises(ValueError):
         parse_model("ollama/")
+
+
+def test_parse_model_unknown_provider_raises() -> None:
+    with pytest.raises(ValueError, match="未知 provider"):
+        parse_model("unknown/foo")
 
 
 def test_complete_unknown_provider() -> None:

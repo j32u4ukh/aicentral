@@ -14,9 +14,26 @@ class AICentralError(Exception):
 class ProviderError(AICentralError):
     """Provider HTTP 或回應格式錯誤。"""
 
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        failure_kind: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.failure_kind = failure_kind
+
+    def is_fallback_eligible(self, fallback_on: list[str]) -> bool:
+        """是否適用 router fallback（connection_error / timeout）。"""
+        if self.failure_kind in fallback_on:
+            return True
+        if self.status_code is None and "connection_error" in fallback_on and "無法連線" in str(
+            self
+        ):
+            return True
+        return False
 
 
 class HistoryOverflowError(AICentralError):

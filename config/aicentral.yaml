@@ -1,0 +1,67 @@
+# aicentral 主設定（可提交版控）；機密請見 config/secret.yaml
+
+app:
+  env: development
+  log_level: INFO
+
+defaults:
+  model: local-chat
+  timeout: 120
+  structured_mode: tool
+
+model_list:
+  - model_name: local-chat
+    provider: ollama
+    params:
+      model_id: gemma4:e2b
+      api_base: secret/ollama.base_url
+      api_key: secret/ollama.api_key
+
+  - model_name: cloud-chat
+    provider: openai
+    params:
+      model_id: gpt-4o-mini
+      api_base: secret/openai.api_base
+      api_key: secret/openai.api_key
+    timeout: 60
+
+  - model_name: claude-sonnet
+    provider: anthropic
+    params:
+      model_id: claude-sonnet-4-20250514
+      api_base: secret/anthropic.api_base
+      api_key: secret/anthropic.api_key
+      api_version: secret/anthropic.api_version
+
+  - model_name: gemini-flash
+    provider: gemini
+    params:
+      model_id: gemini-2.0-flash
+      api_key: secret/gemini.api_key
+      api_base: secret/gemini.api_base
+
+router:
+  fallbacks:
+    - model_name: local-chat
+      fallbacks: [cloud-chat]
+  fallback_on:
+    - connection_error
+    - timeout
+
+mcp_servers:
+  deepwiki:
+    transport: http
+    url: https://mcp.deepwiki.com/mcp
+    description: DeepWiki MCP
+    timeout: 30
+    auth_type: none
+
+mcp_settings:
+  tool_name_prefix: true
+  client_timeout: 30
+
+aicentral_settings:
+  dev: false
+  system_prompt: |
+    請一律使用繁體中文（臺灣正體）回覆，用語自然簡潔。若使用者使用其他語言提問，仍以繁體中文回答。
+  drop_unsupported_params: true

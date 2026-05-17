@@ -7,13 +7,13 @@ v3.0：結構化輸出（Instructor-lite）；單次呼叫，重試由消費方�
 
 from __future__ import annotations
 
-import os
 from collections.abc import Iterator
 from typing import Any, Literal, TypeVar, overload
 
-from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError
 
+from aicentral.config import get_config
+from aicentral.config.loader import get_structured_mode, get_system_prompt
 from aicentral.core.dev import dev_print_exception, is_dev_mode
 from aicentral.core.errors import (
     ProviderError,
@@ -21,15 +21,12 @@ from aicentral.core.errors import (
     StructuredValidationError,
 )
 from aicentral.core.types import Message
-from aicentral.providers.registry import get_provider_module
-from aicentral.routing.parser import parse_model
+from aicentral.routing.router import complete_with_fallback, invoke_resolved, resolve_fallback_chain
 from aicentral.structured.debug import summarize_assistant_message
 from aicentral.structured.extract import ExtractMode, from_chat_completion
 from aicentral.structured.prompt import with_structured_hint
 from aicentral.structured.schema import build_tool
 from aicentral.structured.validate import format_validation_errors, parse
-
-load_dotenv()
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -39,13 +36,11 @@ DEFAULT_SYSTEM_PROMPT_ZH_TW = (
 
 
 def _with_system_prompt(messages: list[Message], system: str | None) -> list[Message]:
-    """若尚無 system 訊息，於開頭插入系統提示（來自參數或 AICENTRAL_SYSTEM_PROMPT）。"""
+    """若尚無 system 訊息，於開頭插入系統提示（參數或 aicentral.yaml）。"""
     if any(m.get("role") == "system" for m in messages):
         return list(messages)
 
-    prompt = system
-    if prompt is None:
-        prompt = os.getenv("AICENTRAL_SYSTEM_PROMPT", DEFAULT_SYSTEM_PROMPT_ZH_TW)
+    prompt = system if system is not None else get_system_prompt(DEFAULT_SYSTEM_PROMPT_ZH_TW)
     if not prompt or not prompt.strip():
         return list(messages)
 
@@ -92,28 +87,33 @@ def complete(
     送出對話並回傳助理回覆。
 
     model 可為裸名 ``gemma4:e2b`` 或 ``ollama/gemma4:e2b``（v2.0 路由）。
+
+    未傳 model 時依 yaml ``defaults.model``（見 ``routing.effective_model``）。
     """
     try:
-        parsed = parse_model(model)
+        resolved_messages = _with_system_prompt(messages, system)
+        extra = dict(kwargs)
+        if base_url is not None:
+            extra["base_url"] = base_url
+        if api_key is not None:
+            extra["api_key"] = api_key
+        if stream:
+            return complete_with_fallback(
+                resolved_messages,
+                model,
+                stream=True,
+                **extra,
+            )
+        return complete_with_fallback(
+            resolved_messages,
+            model,
+            stream=False,
+            **extra,
+        )
     except ValueError as exc:
         err = ProviderError(str(exc))
         dev_print_exception(err, context="complete() model 解析失敗")
         raise err from exc
-
-    resolved_messages = _with_system_prompt(messages, system)
-    provider = get_provider_module(parsed.provider)
-    provider_kwargs = {
-        "messages": resolved_messages,
-        "model": parsed.model_id,
-        "base_url": base_url,
-        "api_key": api_key,
-        **kwargs,
-    }
-
-    if stream:
-        return provider.chat_completions_stream(**provider_kwargs)
-    try:
-        return provider.chat_completions(**provider_kwargs)
     except ProviderError as exc:
         dev_print_exception(exc, context="complete() 失敗")
         raise
@@ -134,8 +134,7 @@ def _guard_structured_kwargs(kwargs: dict[str, Any], *, structured_mode: Extract
 def _resolve_structured_mode(mode: Literal["tool", "json"]) -> ExtractMode:
     if mode == "json":
         return "json"
-    env = os.getenv("AICENTRAL_STRUCTURED_MODE", "tool").strip().lower()
-    return "json" if env == "json" else "tool"
+    return "json" if get_structured_mode() == "json" else "tool"
 
 
 def complete_structured(
@@ -161,40 +160,50 @@ def complete_structured(
     extra = dict(kwargs)
     _guard_structured_kwargs(extra, structured_mode=structured_mode)
 
-    try:
-        parsed = parse_model(model)
-    except ValueError as exc:
-        raise ProviderError(str(exc)) from exc
-
     tool_spec = build_tool(response_model) if structured_mode == "tool" else None
     resolved_messages = with_structured_hint(
         _with_system_prompt(messages, system),
         mode=structured_mode,
     )
 
-    provider = get_provider_module(parsed.provider)
-    provider_kwargs_base: dict[str, Any] = {
-        "base_url": base_url,
-        "api_key": api_key,
-        **extra,
-    }
-    if structured_mode == "json":
-        provider_kwargs_base.setdefault("response_format", {"type": "json_object"})
+    cfg = get_config()
+    chain = resolve_fallback_chain(model, config=cfg)
+    attempted: list[str] = []
+    last_exc: ProviderError | None = None
+    raw: dict[str, Any] | None = None
 
-    call_kwargs: dict[str, Any] = {
-        "messages": resolved_messages,
-        "model": parsed.model_id,
-        **provider_kwargs_base,
-    }
-    if structured_mode == "tool" and tool_spec is not None:
-        call_kwargs["tools"] = tool_spec.tools
-        call_kwargs["tool_choice"] = tool_spec.tool_choice
+    for i, resolved in enumerate(chain):
+        attempted.append(resolved.model_label)
+        call_extra: dict[str, Any] = {
+            "base_url": base_url,
+            "api_key": api_key,
+            **extra,
+        }
+        if structured_mode == "json":
+            call_extra.setdefault("response_format", {"type": "json_object"})
+        if structured_mode == "tool" and tool_spec is not None:
+            call_extra["tools"] = tool_spec.tools
+            call_extra["tool_choice"] = tool_spec.tool_choice
+        try:
+            raw = invoke_resolved(
+                resolved,
+                resolved_messages,
+                raw=True,
+                **call_extra,
+            )
+            assert isinstance(raw, dict)
+            break
+        except ProviderError as exc:
+            last_exc = exc
+            if exc.is_fallback_eligible(cfg.router.fallback_on) and i < len(chain) - 1:
+                continue
+            dev_print_exception(exc, context="Provider 連線或 HTTP 錯誤")
+            exc.add_note(f"已嘗試 model: {', '.join(attempted)}")
+            raise
 
-    try:
-        raw = provider.chat_completions_raw(**call_kwargs)
-    except ProviderError as exc:
-        dev_print_exception(exc, context="Provider 連線或 HTTP 錯誤")
-        raise
+    if raw is None:
+        assert last_exc is not None
+        raise last_exc
 
     summary = summarize_assistant_message(raw)
     payload = from_chat_completion(raw, mode=structured_mode)
