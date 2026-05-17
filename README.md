@@ -6,7 +6,7 @@
 - `complete_structured()` 回傳驗證過的 Pydantic model
 - 可選 `[gateway]` 額外依賴，提供 OpenAI 相容 HTTP 介面
 
-文件：[`docs/concepts.md`](docs/concepts.md)（核心概念）、[`docs/aicentral.md`](docs/aicentral.md)（架構與版本）、[`docs/security.md`](docs/security.md)（Gateway 安全規劃）。
+文件：[`docs/concepts.md`](docs/concepts.md)（核心概念）、[`docs/aicentral.md`](docs/aicentral.md)（架構與版本）、[`docs/aicentral-v0.1.md`](docs/aicentral-v0.1.md)（v0.1 實作紀錄）、[`docs/security.md`](docs/security.md)（Gateway 安全規劃）。
 
 ---
 
@@ -36,7 +36,7 @@ aicentral/
 
 | 區塊 | 用途 |
 |------|------|
-| `[project]` | 套件名稱、版本、**執行期依賴**（pydantic、httpx 等，不含 litellm / instructor） |
+| `[project]` | 套件名稱、版本、**執行期依賴**（v0.1：`httpx`、`python-dotenv`；不含 litellm / instructor） |
 | `[project.optional-dependencies]` | `gateway`（FastAPI）、`dev`（pytest、ruff、mypy） |
 | `[build-system]` | 指定用 **hatchling** 將 `src/aicentral` 打包成可安裝的 wheel |
 | `[tool.pytest.ini_options]` | pytest 預設：測試目錄 `tests/`、將 `src` 加入 `PYTHONPATH` |
