@@ -4,7 +4,7 @@ import pytest
 
 from aicentral import Chat, complete
 from aicentral.exceptions import ProviderError
-from aicentral.providers.openai_compat import chat_completions_stream
+from aicentral.providers.openai import chat_completions_stream
 from aicentral.providers.streaming import extract_delta_content, parse_sse_data_line
 
 
@@ -37,7 +37,7 @@ def test_chat_completions_stream_yields_deltas() -> None:
     mock_client.__enter__.return_value = mock_client
     mock_client.stream.return_value = mock_response
 
-    with patch("aicentral.providers.openai_compat.httpx.Client", return_value=mock_client):
+    with patch("aicentral.providers.openai.httpx.Client", return_value=mock_client):
         deltas = list(
             chat_completions_stream(
                 messages=[{"role": "user", "content": "hi"}],
@@ -51,7 +51,7 @@ def test_chat_completions_stream_yields_deltas() -> None:
     assert payload["stream"] is True
 
 
-@patch("aicentral.client.chat_completions_stream")
+@patch("aicentral.providers.openai.chat_completions_stream")
 def test_complete_stream_delegates(mock_stream: MagicMock) -> None:
     mock_stream.return_value = iter(["a", "b"])
     result = complete([{"role": "user", "content": "hi"}], stream=True)

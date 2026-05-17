@@ -1,5 +1,5 @@
-"""LLM provider 適配層。"""
+"""LLM provider 適配器。"""
 
-from aicentral.providers.openai_compat import chat_completions
+from aicentral.providers.openai import chat_completions, chat_completions_stream
 
-__all__ = ["chat_completions"]
+__all__ = ["chat_completions", "chat_completions_stream"]

@@ -1,12 +1,5 @@
-"""aicentral 共用型別（v1.1）。"""
+"""向後相容：請改用 ``aicentral.core.types``。"""
 
-from __future__ import annotations
+from aicentral.core.types import ChatResponse, Message, Role
 
-from typing import Literal, TypedDict
-
-Role = Literal["system", "user", "assistant"]
-
-
-class Message(TypedDict):
-    role: Role
-    content: str
+__all__ = ["ChatResponse", "Message", "Role"]
