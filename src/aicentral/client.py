@@ -54,7 +54,7 @@ def complete(
     messages:
         OpenAI 格式的訊息列表，例如 ``[{"role": "user", "content": "你好"}]``。
     model:
-        模型名稱；省略時使用環境變數 ``OLLAMA_MODEL``（預設 ``gemma3:4b``）。
+        模型名稱；省略時使用環境變數 ``OLLAMA_MODEL``（預設 ``gemma4:e2b``）。
     system:
         系統提示；省略時使用 ``AICENTRAL_SYSTEM_PROMPT``（預設要求繁體中文回覆）。
         傳 ``""`` 可停用自動插入。若 ``messages`` 已含 ``role: system`` 則不覆寫。
@@ -65,7 +65,7 @@ def complete(
     **kwargs:
         傳遞給 chat/completions 的額外參數（如 ``temperature``）。
     """
-    resolved_model = model or os.getenv("OLLAMA_MODEL", "gemma3:4b")
+    resolved_model = model or os.getenv("OLLAMA_MODEL", "gemma4:e2b")
     resolved_messages = _with_system_prompt(messages, system)
 
     return chat_completions(
