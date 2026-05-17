@@ -108,7 +108,7 @@ ruff check .              # 程式碼檢查
 ```powershell
 .\scripts\install_dev.ps1     # 可選：.env + 虛擬環境 + 安裝依賴
 .\.venv\Scripts\Activate.ps1
-# 確認 Ollama 已啟動，並編輯 .env 的 OLLAMA_MODEL（預設 llama3.2）
+# 確認 Ollama 已啟動，並編輯 .env 的 OLLAMA_MODEL（預設 gemma4:e2b）
 pytest
 ```
 
