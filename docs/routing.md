@@ -60,7 +60,7 @@ routing/router.py
 providers/registry → openai | anthropic | gemini | …
 ```
 
-與 **MCP** 無關：MCP 不走 Router 選 LLM（見 [MCP Server.md](./MCP%20Server.md)）。
+與 **MCP** 無關：MCP 不走 Router 選 LLM（見 [mcp.md](./mcp.md)）。
 
 ---
 
@@ -72,7 +72,7 @@ providers/registry → openai | anthropic | gemini | …
 
 | 輸入 | 結果 |
 |------|------|
-| `None` / `""` | `ollama` + `OLLAMA_MODEL` |
+| `None` / `""` | `ollama` + `secret.yaml` → `ollama.model` |
 | `gemma4:e2b`（裸名） | `ollama` + `gemma4:e2b` |
 | `ollama/gemma4:e2b` | `ollama` + `gemma4:e2b` |
 | `openai/gpt-4o-mini` | `openai` + `gpt-4o-mini` |
@@ -97,19 +97,18 @@ parsed = parse_model("openai/gpt-4o-mini")
 | 順序 | 來源 | 說明 |
 |------|------|------|
 | 1 | `complete(..., model="...")` | 呼叫端明確指定 |
-| 2 | 環境變數 `AICENTRAL_DEFAULT_MODEL` | 建議在 `.env` 設定 |
-| 3 | `config/aicentral.yaml` → `defaults.model` | 需設 `AICENTRAL_CONFIG` |
-| 4 | `ollama/{OLLAMA_MODEL}` | 最後 fallback，預設本機 Ollama |
+| 2 | `config/aicentral.yaml` → `defaults.model` | 可為別名（如 `local-chat`） |
+| 3 | `ollama/{secret.yaml → ollama.model}` | 最後 fallback |
 
 ```python
 from aicentral import effective_model
 
-# .env: AICENTRAL_DEFAULT_MODEL=ollama/gemma4:e2b
-effective_model(None)   # -> "ollama/gemma4:e2b"
+# config/aicentral.yaml: defaults.model: local-chat
+effective_model(None)   # -> "local-chat"
 effective_model("openai/gpt-4o-mini")  # -> 原樣，不受預設影響
 ```
 
-> **重要**：在 `.env` 填寫 `OPENAI_API_KEY` 等**不會**自動改用雲端；必須透過 `model` 或 `AICENTRAL_DEFAULT_MODEL`（或 yaml 別名）指定 provider。
+> **重要**：在 `secret.yaml` 填寫 `openai.api_key` 等**不會**自動改用雲端；必須透過 `model` 或 `defaults.model`（yaml 別名）指定 provider。
 
 ---
 
@@ -129,8 +128,8 @@ effective_model("openai/gpt-4o-mini")  # -> 原樣，不受預設影響
 
 金鑰與 URL 來自：
 
-1. **`model_list` 別名**（yaml 內 `params`，可寫 `os.environ/VAR`）
-2. 否則 **`providers/credentials.py`** 依 provider 讀對應 env（如 `OPENAI_API_KEY`）
+1. **`model_list` 別名**（yaml 內 `params`，可寫 `secret/ollama.api_key` 等引用）
+2. 否則 **`providers/credentials.py`** 依 provider 讀 `get_secret()`（如 `openai.api_key`）
 
 ```python
 from aicentral import resolve_call
@@ -143,26 +142,29 @@ print(r.provider, r.model_id, r.base_url)
 
 ## 設定檔別名（`model_list`）
 
-啟用 yaml（見 [config/aicentral.yaml](../config/aicentral.yaml)）：
-
-```env
-AICENTRAL_CONFIG=./config/aicentral.yaml
-```
+設定檔（見 [config/aicentral.yaml](../config/aicentral.yaml)、[config/secret.yaml.example](../config/secret.yaml.example)）：
 
 ```yaml
+# config/secret.yaml（勿提交；由 secret.yaml.example 複製）
+ollama:
+  base_url: http://localhost:11434/v1
+  model: gemma4:e2b
+  api_key: ""
+
+# config/aicentral.yaml
 model_list:
   - model_name: local-chat
     provider: ollama
     params:
       model_id: gemma4:e2b
-      api_base: os.environ/OLLAMA_BASE_URL
-      api_key: os.environ/OLLAMA_API_KEY
+      api_base: secret/ollama.base_url
+      api_key: secret/ollama.api_key
 
   - model_name: cloud-chat
     provider: openai
     params:
       model_id: gpt-4o-mini
-      api_key: os.environ/OPENAI_API_KEY
+      api_key: secret/openai.api_key
 ```
 
 呼叫時可用 **別名** 代替長字串：
@@ -219,43 +221,21 @@ flowchart LR
 
 ---
 
-## 環境變數速查
+## 設定檔速查
 
-| 變數 | 用途 |
+| 檔案 | 用途 |
 |------|------|
-| `AICENTRAL_DEFAULT_MODEL` | 未傳 `model` 時的預設（建議 `ollama/...` 或 yaml 別名） |
-| `AICENTRAL_CONFIG` | yaml 路徑；啟用別名與 fallback |
-| `OLLAMA_MODEL` / `OLLAMA_BASE_URL` | Ollama；`effective_model` 最後 fallback 用 |
-| `OPENAI_*` / `ANTHROPIC_*` / `GEMINI_*` | 對應 provider 的連線與金鑰 |
+| `config/aicentral.yaml` | 主設定（可提交）：`defaults`、`model_list`、`router`、`mcp_servers` |
+| `config/secret.yaml` | 機密（勿提交）：巢狀 `ollama` / `openai` / `anthropic` / `gemini` / `mcp` |
+| `config/secret.yaml.example` | 可提交的範本 |
 
-範例見 [.env.example](../.env.example)。
+程式內統一透過 `get_config()`、`get_secret("ollama.api_key")` 讀取，不再使用 `os.getenv`。
 
 ---
 
 ## 使用範例
 
-### 最簡：只靠 .env（無 yaml）
-
-```env
-AICENTRAL_DEFAULT_MODEL=ollama/gemma4:e2b
-OLLAMA_BASE_URL=http://localhost:11434/v1
-OLLAMA_MODEL=gemma4:e2b
-```
-
-```python
-from aicentral import complete
-
-# 使用 AICENTRAL_DEFAULT_MODEL → 本機 Ollama
-reply = complete([{"role": "user", "content": "你好"}])
-
-# 單次指定雲端（需 OPENAI_API_KEY）
-reply = complete(
-    [{"role": "user", "content": "你好"}],
-    model="openai/gpt-4o-mini",
-)
-```
-
-### 有 yaml：別名 + fallback
+### 預設：yaml 別名 + fallback
 
 ```python
 from aicentral import complete, effective_model, resolve_fallback_chain
@@ -271,7 +251,7 @@ reply = complete([{"role": "user", "content": "hi"}], model="local-chat")
 
 ### `Chat` 與 Router
 
-`Chat(model=None)` 時，每次 `chat.complete()` 會把 `self._model`（可能為 `None`）交給 `complete()`，因此同樣走 `effective_model` 規則。若建構時傳入 `Chat(model="ollama/gemma4:e2b")`，則固定該字串，不受 `AICENTRAL_DEFAULT_MODEL` 影響。
+`Chat(model=None)` 時，每次 `chat.complete()` 會把 `self._model`（可能為 `None`）交給 `complete()`，因此同樣走 `effective_model` 規則。若建構時傳入 `Chat(model="ollama/gemma4:e2b")`，則固定該字串，不受 `defaults.model` 影響。
 
 ### 進階：直接解析（測試／除錯）
 
@@ -319,8 +299,8 @@ from aicentral import (
 
 | 現象 | 可能原因 |
 |------|----------|
-| 明明填了 `OPENAI_API_KEY` 仍走 Ollama | 未傳 `model` 且 `AICENTRAL_DEFAULT_MODEL` 仍是 `ollama/...` |
-| 設了 yaml 卻仍只用 env | 未設 `AICENTRAL_CONFIG` 或路徑錯誤 |
+| 明明填了 `openai.api_key` 仍走 Ollama | 未傳 `model` 且 `defaults.model` 仍是 `local-chat` 等 Ollama 別名 |
+| 設了 yaml 卻沒生效 | `config/secret.yaml` 缺失或 `secret/...` 路徑拼錯 |
 | Ollama 掛了但沒切雲端 | 未設 `router.fallbacks`，或錯誤類型不在 `fallback_on` |
 | `未知 provider` | model 字串前綴不在四種 provider 內 |
 | 401 不 fallback | 預期行為；請檢查 API key，而非依賴 fallback |
@@ -331,4 +311,4 @@ from aicentral import (
 
 - [aicentral-v4.0.md](./aicentral-v4.0.md) — 多供應商與 config 完整規格
 - [aicentral.md](./aicentral.md) — 專案總覽
-- [MCP Server.md](./MCP%20Server.md) — MCP 與 Router 的分工
+- [mcp.md](./mcp.md) — MCP 與 routing 的分工

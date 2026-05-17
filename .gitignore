@@ -147,6 +147,9 @@ activemq-data/
 # SageMath parsed files
 *.sage.py
 
+# Local secrets (use config/secret.yaml.example as template)
+config/secret.yaml
+
 # Environments
 .env
 .envrc

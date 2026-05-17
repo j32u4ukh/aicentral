@@ -1,4 +1,4 @@
-# aicentral v4.0 範例設定（可複製到專案根目錄或設 AICENTRAL_CONFIG）
+# aicentral 主設定（可提交版控）；機密請見 config/secret.yaml
 
 defaults:
   model: local-chat
@@ -10,30 +10,31 @@ model_list:
     provider: ollama
     params:
       model_id: gemma4:e2b
-      api_base: os.environ/OLLAMA_BASE_URL
-      api_key: os.environ/OLLAMA_API_KEY
+      api_base: secret/ollama.base_url
+      api_key: secret/ollama.api_key
 
   - model_name: cloud-chat
     provider: openai
     params:
       model_id: gpt-4o-mini
-      api_base: https://api.openai.com/v1
-      api_key: os.environ/OPENAI_API_KEY
+      api_base: secret/openai.api_base
+      api_key: secret/openai.api_key
     timeout: 60
 
   - model_name: claude-sonnet
     provider: anthropic
     params:
       model_id: claude-sonnet-4-20250514
-      api_base: https://api.anthropic.com
-      api_key: os.environ/ANTHROPIC_API_KEY
-      api_version: "2023-06-01"
+      api_base: secret/anthropic.api_base
+      api_key: secret/anthropic.api_key
+      api_version: secret/anthropic.api_version
 
   - model_name: gemini-flash
     provider: gemini
     params:
       model_id: gemini-2.0-flash
-      api_key: os.environ/GEMINI_API_KEY
+      api_key: secret/gemini.api_key
+      api_base: secret/gemini.api_base
 
 router:
   fallbacks:
@@ -57,4 +58,6 @@ mcp_settings:
 
 aicentral_settings:
   dev: false
+  system_prompt: |
+    請一律使用繁體中文（臺灣正體）回覆，用語自然簡潔。若使用者使用其他語言提問，仍以繁體中文回答。
   drop_unsupported_params: true

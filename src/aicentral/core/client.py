@@ -7,14 +7,13 @@ v3.0：結構化輸出（Instructor-lite）；單次呼叫，重試由消費方�
 
 from __future__ import annotations
 
-import os
 from collections.abc import Iterator
 from typing import Any, Literal, TypeVar, overload
 
-from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError
 
 from aicentral.config import get_config
+from aicentral.config.loader import get_structured_mode, get_system_prompt
 from aicentral.core.dev import dev_print_exception, is_dev_mode
 from aicentral.core.errors import (
     ProviderError,
@@ -29,8 +28,6 @@ from aicentral.structured.prompt import with_structured_hint
 from aicentral.structured.schema import build_tool
 from aicentral.structured.validate import format_validation_errors, parse
 
-load_dotenv()
-
 T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_SYSTEM_PROMPT_ZH_TW = (
@@ -39,13 +36,11 @@ DEFAULT_SYSTEM_PROMPT_ZH_TW = (
 
 
 def _with_system_prompt(messages: list[Message], system: str | None) -> list[Message]:
-    """若尚無 system 訊息，於開頭插入系統提示（來自參數或 AICENTRAL_SYSTEM_PROMPT）。"""
+    """若尚無 system 訊息，於開頭插入系統提示（參數或 aicentral.yaml）。"""
     if any(m.get("role") == "system" for m in messages):
         return list(messages)
 
-    prompt = system
-    if prompt is None:
-        prompt = os.getenv("AICENTRAL_SYSTEM_PROMPT", DEFAULT_SYSTEM_PROMPT_ZH_TW)
+    prompt = system if system is not None else get_system_prompt(DEFAULT_SYSTEM_PROMPT_ZH_TW)
     if not prompt or not prompt.strip():
         return list(messages)
 
@@ -93,8 +88,7 @@ def complete(
 
     model 可為裸名 ``gemma4:e2b`` 或 ``ollama/gemma4:e2b``（v2.0 路由）。
 
-    未傳 model 時依 ``AICENTRAL_DEFAULT_MODEL`` → yaml ``defaults.model``
-    → ``ollama/{OLLAMA_MODEL}``（見 ``routing.effective_model``）。
+    未傳 model 時依 yaml ``defaults.model``（見 ``routing.effective_model``）。
     """
     try:
         resolved_messages = _with_system_prompt(messages, system)
@@ -140,8 +134,7 @@ def _guard_structured_kwargs(kwargs: dict[str, Any], *, structured_mode: Extract
 def _resolve_structured_mode(mode: Literal["tool", "json"]) -> ExtractMode:
     if mode == "json":
         return "json"
-    env = os.getenv("AICENTRAL_STRUCTURED_MODE", "tool").strip().lower()
-    return "json" if env == "json" else "tool"
+    return "json" if get_structured_mode() == "json" else "tool"
 
 
 def complete_structured(

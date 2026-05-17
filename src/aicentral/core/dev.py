@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from typing import Any
 
 
 def is_dev_mode() -> bool:
-    """是否啟用開發模式（``AICENTRAL_DEV=1`` / ``true`` / ``yes``）。"""
-    value = os.getenv("AICENTRAL_DEV", "").strip().lower()
-    return value in ("1", "true", "yes", "on")
+    """是否啟用開發模式（``aicentral.yaml`` → ``aicentral_settings.dev``）。"""
+    try:
+        from aicentral.config.loader import is_dev_mode_from_config
+
+        return is_dev_mode_from_config()
+    except Exception:
+        return False
 
 
 def dev_print(*parts: Any, sep: str = " ", end: str = "\n") -> None:

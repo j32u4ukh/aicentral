@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
 from aicentral.config import get_config
+from aicentral.config.loader import get_secret
 from aicentral.config.schema import AICentralConfig, ModelEntry, ModelParams
 from aicentral.core.errors import ProviderError
 from aicentral.core.types import Message
@@ -27,23 +27,19 @@ def effective_model(
     呼叫端未指定 ``model`` 時的實際模型字串（優先序）：
 
     1. 參數 ``model``（非空）
-    2. 環境變數 ``AICENTRAL_DEFAULT_MODEL``
-    3. ``config/aicentral.yaml`` 的 ``defaults.model``（需 ``AICENTRAL_CONFIG``）
-    4. ``ollama/{OLLAMA_MODEL}``（預設本機 Ollama）
+    2. ``config/aicentral.yaml`` 的 ``defaults.model``
+    3. ``ollama/{secret.yaml → ollama.model}``
     """
     if model is not None and str(model).strip():
         return model.strip()
 
-    env_default = os.getenv("AICENTRAL_DEFAULT_MODEL", "").strip()
-    if env_default:
-        return env_default
-
     cfg = config or get_config()
-    if cfg.defaults.model:
-        return cfg.defaults.model
+    default = (cfg.defaults.model or "").strip()
+    if default:
+        return default
 
-    parsed = parse_model(None)
-    return f"{parsed.provider}/{parsed.model_id}"
+    ollama_model = get_secret("ollama.model", default="gemma4:e2b")
+    return f"ollama/{ollama_model}"
 
 
 @dataclass(frozen=True)

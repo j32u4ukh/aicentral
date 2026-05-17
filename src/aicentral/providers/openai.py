@@ -6,12 +6,12 @@ v2.0：由 openai_compat 遷入；用於 Ollama 等 OpenAI 相容端點。
 
 from __future__ import annotations
 
-import os
 from collections.abc import Iterator
 from typing import Any
 
 import httpx
 
+from aicentral.config.loader import get_secret
 from aicentral.core.errors import ProviderError
 from aicentral.core.types import Message
 from aicentral.providers.streaming import extract_delta_content, parse_sse_data_line
@@ -112,9 +112,9 @@ def _build_request(
     extra: dict[str, Any],
 ) -> tuple[str, dict[str, str], dict[str, Any]]:
     url_base = _normalize_base_url(
-        base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+        base_url or get_secret("ollama.base_url", default="http://localhost:11434/v1") or ""
     )
-    key = api_key if api_key is not None else os.getenv("OLLAMA_API_KEY", "ollama")
+    key = api_key if api_key is not None else get_secret("ollama.api_key", default="ollama")
     payload: dict[str, Any] = {
         "model": model,
         "messages": to_openai_messages(messages),
