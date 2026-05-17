@@ -9,6 +9,78 @@
 
 v3.0 在既有 `complete()` / `Chat` 之上新增 **`complete_structured(response_model=...)`**，由消費方定義 Pydantic model，aicentral 負責 **schema 產生、呼叫模型、解析、驗證與可設定重試**；**不安裝** `instructor` 套件。
 
+> **重要**：截至函式庫 **v0.3.0**，結構化輸出**尚未實作**；本文件描述的是 **v3.0 規劃**（目標 **v0.4.0**）。下方「現況 vs 規劃」一節對照目前程式與本規格之差異。
+
+---
+
+## 現況（v0.3.0）vs v3.0 規劃
+
+### 目前程式庫有什麼
+
+| 項目 | v0.3.0（現在） | v3.0 規劃（v0.4.0） |
+|------|----------------|---------------------|
+| `complete_structured()` | ❌ 不存在 | ✅ P0 |
+| `structured/` 目錄 | ❌ 不存在 | ✅ `schema` / `extract` / `validate` |
+| `Chat.complete_structured()` | ❌ 不存在 | ✅ P1 |
+| `pydantic` 依賴 | ❌ 僅 `httpx`、`python-dotenv` | ✅ 必要依賴 |
+| `StructuredOutputError` | ❌ 不存在 | ✅ P0 |
+| `__init__.py` 匯出 | `complete`、`Chat`、`parse_model`… | + `complete_structured` |
+| 主 API 回傳 | `str` 或 `Iterator[str]` | + Pydantic 實例 |
+| Provider 回傳 | 只解析 `message.content` → `str` | 需 **raw** 回應（含 `tool_calls`） |
+| 驗證 / 重試 | 無 | Pydantic validate + `max_retries` |
+| 結構化串流 | 無（亦無 API） | v3.0 **刻意不做**（見下方專節） |
+
+**一句話**：現在只有「跟模型說話拿字串」；v3.0 要在函式庫內建 **schema → tool call → extract → validate → 重試** 整條管線。
+
+### 文件與程式的落差
+
+| 來源 | 寫了什麼 | 實際 |
+|------|----------|------|
+| `README.md` / `pyproject.toml` description | 提到 structured outputs、`complete_structured()` | **產品方向**，v0.3.0 尚未實作 |
+| [concepts.md](./concepts.md) | `complete_structured()` **規劃中** | 與程式一致 |
+| 本文件 | 狀態：**規劃中** | 與程式一致 |
+
+實作 v3.0 後應同步：將本文件改為「已實作」、更新 `__version__` 為 **0.4.0**、README 範例改為可執行程式碼。
+
+### 現階段消費方能做什麼（繞路，非結構化 API）
+
+```python
+from aicentral import complete
+
+raw = complete(
+    messages=[{"role": "user", "content": "請用 JSON 回傳 title 和 priority"}],
+    model="ollama/gemma4:e2b",
+)
+# raw 是 str → 消費方自行 json.loads、自行驗證、自行重試
+```
+
+理論上 `complete(..., tools=[...])` 可把 `tools` 經 `**kwargs` 併入 provider payload，但：
+
+- 沒有從 Pydantic 產生 schema 的 helper
+- `chat_completions` **只回傳 content 字串**，無法讀 `tool_calls`
+- 沒有 `response_model` 型別與 `StructuredOutputError`
+
+因此**不視為** aicentral 已提供結構化輸出。
+
+### v3.0 規劃後的用法（對照）
+
+```python
+from pydantic import BaseModel
+from aicentral import complete_structured  # v3.0 起
+
+
+class Ticket(BaseModel):
+    title: str
+    priority: int
+
+
+ticket = complete_structured(
+    messages=[{"role": "user", "content": "伺服器當機，很急"}],
+    response_model=Ticket,
+)
+# ticket 為驗證過的 Ticket 實例（規劃行為）
+```
+
 ---
 
 ## 定位與邊界
@@ -31,7 +103,7 @@ v3.0 在既有 `complete()` / `Chat` 之上新增 **`complete_structured(respons
 
 | | `complete()` | `complete_structured()` |
 |--|--------------|-------------------------|
-| 回傳 | `str` 或 `Iterator[str]`（`stream=True`） | **單一** Pydantic 實例（v3.0 不支援結構化串流） |
+| 回傳 | `str` 或 `Iterator[str]`（`stream=True`） | **單一** Pydantic 實例（v3.0 **刻意不實作**結構化串流，見下方專節） |
 | 典型用途 | 聊天、摘要、開放問答 | 抽取、分類、表單欄位、API 契約輸出 |
 | 底層 HTTP | `providers/*` | **同一條**；多傳 `tools` / `tool_choice`（或 fallback 策略） |
 
@@ -40,8 +112,43 @@ v3.0 在既有 `complete()` / `Chat` 之上新增 **`complete_structured(respons
 | 項目 | 決策 |
 |------|------|
 | `Chat.complete_structured(prompt, response_model=...)` | **P1**：內部組 `messages` 後呼叫 `complete_structured`；有狀態時成功後寫入歷史（與文字 `complete` 相同時機） |
-| `Chat.complete(..., stream=True)` + 結構化 | **不支援**；結構化一律非串流 |
+| `Chat.complete(..., stream=True)` + 結構化 | v3.0 **不提供**；聊天用 `complete(stream=True)`，抽取用 `complete_structured` |
 | 無狀態 `Chat` + `response_model` | 支援，與 v1.1 `context=` 語意一致 |
+
+---
+
+## 結構化與串流：刻意不做，還是技術上不能做？
+
+**結論（v3.0）**：屬於**範圍決策（刻意不做）**，不是「永遠不能做」。v0.3.0 是連結構化 API 都還沒有，更談不上結構化串流。
+
+| 問題 | 答案 |
+|------|------|
+| v0.3.0 有結構化串流嗎？ | **沒有**——因為沒有 `complete_structured` |
+| v3.0 會做結構化串流嗎？ | **不會**——列在「不在 v3.0 範圍」，延後 v3.1+ |
+| 技術上未來能做嗎？ | **可以**，但需另訂 API（例如 Instructor 的 `Partial[T]`、串流累積 JSON 再增量 validate） |
+
+### 為何 v3.0 刻意不做結構化串流
+
+1. **驗證時點**：Pydantic `model_validate` 需要**完整** JSON；tool `arguments` 在串流中常分段抵達，須等全文或做增量解析，複雜度明顯高於「收齊再驗證一次」。
+2. **主路徑是 tool_calls**：v3.0 P0 假設模型一次回傳完整 `function.arguments`；與「邊收邊顯示欄位」的 UX 不同。
+3. **與 `complete(stream=True)` 分工**：終端聊天、長文生成繼續用既有串流；結構化用於抽取、分類、API 契約，多為**短回覆、一次拿結果**。
+4. **控制範圍**：v3.0 先交付可用的 `complete_structured() -> T`；進階 DSL（`Partial[T]`、Iterable model）對齊 Instructor 的 `dsl/`，列 **v3.1+**。
+
+### 消費方該怎麼選（v3.0 起仍適用）
+
+| 需求 | 建議 API |
+|------|----------|
+| 終端機邊打邊看、長文助理回覆 | `complete(..., stream=True)` 或 `Chat.complete(..., stream=True)` |
+| 從使用者輸入抽出固定欄位、回傳給後端 API | `complete_structured(..., response_model=...)` |
+| 既要串流又要結構化欄位 | v3.0：**拆兩次呼叫**或 v3.0 前自行 parse；v3.1+ 再評估 `Partial` / 串流結構化 |
+
+### 未來若要做（v3.1+ 草案，非 v3.0 承諾）
+
+- `complete_structured(..., stream=True) -> Iterator[Partial[T]]` 或類似型別
+- 串流 SSE 累積 `tool_calls[].function.arguments`，達可 parse 片段時 yield 部分欄位
+- `Chat` 是否跟進：待 API 穩定後再定
+
+**API 設計原則**：`complete_structured` **不提供** `stream` 參數，與 `complete` 的 overload 分離，避免呼叫方誤以為能 `stream=True` 卻拿到 `Ticket` 實例。
 
 ---
 
@@ -63,7 +170,7 @@ v3.0 在既有 `complete()` / `Chat` 之上新增 **`complete_structured(respons
 | JSON-in-content fallback（無 tool_calls） | P2 | 相容較舊或不穩定的本機模型 |
 | `pydantic-settings` + `config/` | P2 | 仍可用 `.env` + `os.getenv` 滿足 v3.0 |
 | `acomplete_structured` 非同步 | — | v3.1+ 或與 v1.2 `acomplete` 一併 |
-| 結構化 + `stream=True` | — | 不在 v3.0 |
+| 結構化 + `stream=True` | — | **刻意不做**（範圍外，非遺漏）；見「結構化與串流」 |
 | 多 function / 多 schema 擇一 | — | v3.0 僅 **單一** `response_model` |
 | HTTP Gateway 暴露 structured | — | v5.0 |
 
@@ -158,8 +265,8 @@ def complete_structured[T: BaseModel](
 ) -> T: ...
 ```
 
-- **不**提供 `stream` 參數（與 `complete` 的 overload 分離，避免型別混淆）。
-- `**kwargs` 透傳至 `complete()` / provider（例如 `temperature`），但 **`tools` / `tool_choice` 由 structured 層管理**，消費方不應覆寫。
+- **不**提供 `stream` 參數——v3.0 **刻意不實作**結構化串流（見「結構化與串流」），不是暫時漏做。
+- `**kwargs` 透傳至 `complete()` / provider（例如 `temperature`），但 **`tools` / `tool_choice` 由 structured 層管理**，消費方不應覆寫；亦不得透過 `kwargs` 傳 `stream=True` 混入結構化路徑（實作時應忽略或拒絕）。
 
 ---
 
@@ -385,7 +492,7 @@ ollama pull gemma4:e2b   # 或文件指定型號
 - 多供應商 fallback（v4.0）
 - HTTP Gateway（v5.0）
 - `acomplete` / 非同步結構化
-- 結構化串流、`Partial[T]` 漸進式欄位
+- **結構化串流**（`complete_structured(..., stream=True)`、`Partial[T]`）——**刻意不做**，非技術不可行；理由見「結構化與串流」
 - 內建 moderation / 額外 validation 管線（Instructor `validation/`）
 - 修改 `aicentral-chat` 主流程（仍用 `Chat.complete(..., stream=True)` 即可）
 
@@ -419,8 +526,11 @@ ollama pull gemma4:e2b   # 或文件指定型號
 
 | 問題 | 答案 |
 |------|------|
+| **現在**有結構化輸出嗎？ | **沒有**（v0.3.0）；僅 `complete()` / `Chat` 回傳文字 |
 | v3.0 多出什麼？ | `complete_structured()` + `structured/*` + `pydantic` 依賴 |
 | 領域 model 放哪？ | **消費方**；aicentral 只處理任意 `BaseModel` |
 | 與 `complete()` 關係？ | 委派同一 provider 路徑，多加 tools 與驗證重試 |
+| 結構化為何不支援串流？ | v3.0 **刻意不做**（驗證需完整 JSON、範圍控制）；v3.1+ 可評估 `Partial[T]` |
+| 聊天要串流怎麼辦？ | 繼續用 `complete(stream=True)`，與結構化 API 分開 |
 | 套件版本目標？ | **0.4.0**（實作完成後更新本文件狀態為「已實作」） |
-| 下一步？ | v4.0 多供應商；或 v3.1 `acomplete_structured` |
+| 下一步？ | 實作 v3.0 → v4.0 多供應商；或 v3.1 `acomplete_structured` / 結構化串流 |
