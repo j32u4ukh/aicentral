@@ -26,7 +26,7 @@ Router 負責把呼叫端的 **`model` 字串**（或「沒傳 model」時的預
 |------|--------|----------------|
 | **aicentral Router**（本文件） | `model` 字串 → provider、金鑰、fallback | ✅ `routing/router.py` |
 | **LLM 供應商 API** | 真正的後端接口（如 `POST .../chat/completions`） | ✅ 由 provider 連線 |
-| **HTTP Gateway / Proxy** | 獨立進程、對外 OpenAI 相容 REST | ❌ 未實作；規劃見 v5.0 `gateway/` |
+| **HTTP Gateway / Proxy** | 本機 OpenAI 相容 REST（`gateway/`） | ✅ 見 [proxy.md](./proxy.md) |
 | **LiteLLM Router**（上游概念） | 套件內依 model 分派到 `llms/*` | 設計參考，**不安裝** litellm |
 
 ```

@@ -13,7 +13,7 @@
 | **要接 OpenAI / Claude / Gemini** | [routing.md](./routing.md) + [aicentral-v4.0.md](./aicentral-v4.0.md) |
 | **結構化輸出（Pydantic）** | [concepts.md](./concepts.md) → [aicentral-v3.0.md](./aicentral-v3.0.md) |
 | **MCP 工具** | [mcp.md](./mcp.md) |
-| **本機 HTTP Gateway（v5.0）** | [aicentral-v5.0 .md](./aicentral-v5.0%20.md) |
+| **本機 HTTP Proxy / Gateway（v5.0）** | [proxy.md](./proxy.md)（使用說明）· [aicentral-v5.0 .md](./aicentral-v5.0%20.md)（規格） |
 | **未來對外開 HTTP API** | [security.md](./security.md) |
 | **想了解設計從哪來** | [litellm.md](./litellm.md)、[instructor.md](./instructor.md) |
 
