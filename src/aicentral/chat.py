@@ -15,9 +15,9 @@ from collections.abc import Iterable, Iterator
 from enum import StrEnum
 from typing import Any, overload
 
-from aicentral.client import complete
-from aicentral.exceptions import HistoryOverflowError
-from aicentral.types import Message
+from aicentral.core.client import complete
+from aicentral.core.errors import HistoryOverflowError
+from aicentral.core.types import Message
 
 
 class ChatMode(StrEnum):

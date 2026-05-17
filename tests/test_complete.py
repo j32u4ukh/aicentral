@@ -5,7 +5,7 @@ import pytest
 
 from aicentral import complete
 from aicentral.exceptions import ProviderError
-from aicentral.providers.openai_compat import chat_completions
+from aicentral.providers.openai import chat_completions
 
 
 def test_chat_completions_returns_content() -> None:
@@ -19,7 +19,7 @@ def test_chat_completions_returns_content() -> None:
     mock_client.__enter__.return_value = mock_client
     mock_client.post.return_value = mock_response
 
-    with patch("aicentral.providers.openai_compat.httpx.Client", return_value=mock_client):
+    with patch("aicentral.providers.openai.httpx.Client", return_value=mock_client):
         text = chat_completions(
             messages=[{"role": "user", "content": "hi"}],
             model="llama3.2",
@@ -43,7 +43,7 @@ def test_chat_completions_http_error() -> None:
     mock_client.__enter__.return_value = mock_client
     mock_client.post.return_value = mock_response
 
-    with patch("aicentral.providers.openai_compat.httpx.Client", return_value=mock_client):
+    with patch("aicentral.providers.openai.httpx.Client", return_value=mock_client):
         with pytest.raises(ProviderError) as exc_info:
             chat_completions(
                 messages=[{"role": "user", "content": "hi"}],
@@ -59,7 +59,7 @@ def test_chat_completions_connection_error() -> None:
     mock_client.__enter__.return_value = mock_client
     mock_client.post.side_effect = httpx.ConnectError("connection refused")
 
-    with patch("aicentral.providers.openai_compat.httpx.Client", return_value=mock_client):
+    with patch("aicentral.providers.openai.httpx.Client", return_value=mock_client):
         with pytest.raises(ProviderError, match="無法連線"):
             chat_completions(
                 messages=[{"role": "user", "content": "hi"}],
@@ -68,7 +68,7 @@ def test_chat_completions_connection_error() -> None:
             )
 
 
-@patch("aicentral.client.chat_completions", return_value="from client")
+@patch("aicentral.providers.openai.chat_completions", return_value="from client")
 def test_complete_delegates_to_provider(mock_chat: MagicMock) -> None:
     result = complete([{"role": "user", "content": "test"}], model="gemma3:4b")
     assert result == "from client"
@@ -76,7 +76,17 @@ def test_complete_delegates_to_provider(mock_chat: MagicMock) -> None:
     assert mock_chat.call_args.kwargs["model"] == "gemma3:4b"
 
 
-@patch("aicentral.client.chat_completions", return_value="ok")
+@patch("aicentral.providers.openai.chat_completions", return_value="from client")
+def test_complete_parses_provider_prefix(mock_chat: MagicMock) -> None:
+    result = complete(
+        [{"role": "user", "content": "test"}],
+        model="ollama/gemma3:4b",
+    )
+    assert result == "from client"
+    assert mock_chat.call_args.kwargs["model"] == "gemma3:4b"
+
+
+@patch("aicentral.providers.openai.chat_completions", return_value="ok")
 def test_complete_prepends_traditional_chinese_system(mock_chat: MagicMock) -> None:
     complete([{"role": "user", "content": "hi"}])
     msgs = mock_chat.call_args.kwargs["messages"]
@@ -84,7 +94,7 @@ def test_complete_prepends_traditional_chinese_system(mock_chat: MagicMock) -> N
     assert "繁體中文" in msgs[0]["content"]
 
 
-@patch("aicentral.client.chat_completions", return_value="ok")
+@patch("aicentral.providers.openai.chat_completions", return_value="ok")
 def test_complete_keeps_existing_system(mock_chat: MagicMock) -> None:
     complete(
         [
@@ -97,7 +107,7 @@ def test_complete_keeps_existing_system(mock_chat: MagicMock) -> None:
     assert len(msgs) == 2
 
 
-@patch("aicentral.client.chat_completions", return_value="ok")
+@patch("aicentral.providers.openai.chat_completions", return_value="ok")
 def test_complete_system_empty_disables_prompt(mock_chat: MagicMock) -> None:
     complete([{"role": "user", "content": "hi"}], system="")
     msgs = mock_chat.call_args.kwargs["messages"]
