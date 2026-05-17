@@ -2,20 +2,20 @@
 aicentral 主入口：complete()。
 
 參考 LiteLLM completion() 的「統一入口 + 分派 provider」思想；
-v0.1 僅分派至 openai_compat（Ollama）。
+v1.1 支援 stream=True 串流回應。
 """
 
 from __future__ import annotations
 
 import os
-from typing import Any
+from collections.abc import Iterator
+from typing import Any, overload
 
 from dotenv import load_dotenv
 
-from aicentral.providers.openai_compat import chat_completions
+from aicentral.providers.openai_compat import chat_completions, chat_completions_stream
 from aicentral.types import Message
 
-# 載入專案根目錄 .env（開發時）
 load_dotenv()
 
 DEFAULT_SYSTEM_PROMPT_ZH_TW = (
@@ -37,27 +37,60 @@ def _with_system_prompt(messages: list[Message], system: str | None) -> list[Mes
     return [{"role": "system", "content": prompt.strip()}, *messages]
 
 
+def _resolve_model(model: str | None) -> str:
+    return model or os.getenv("OLLAMA_MODEL", "gemma4:e2b")
+
+
+@overload
 def complete(
     messages: list[Message],
     model: str | None = None,
     *,
+    stream: bool = False,
     system: str | None = None,
     base_url: str | None = None,
     api_key: str | None = None,
     **kwargs: Any,
-) -> str:
+) -> str: ...
+
+
+@overload
+def complete(
+    messages: list[Message],
+    model: str | None = None,
+    *,
+    stream: bool = True,
+    system: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    **kwargs: Any,
+) -> Iterator[str]: ...
+
+
+def complete(
+    messages: list[Message],
+    model: str | None = None,
+    *,
+    stream: bool = False,
+    system: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    **kwargs: Any,
+) -> str | Iterator[str]:
     """
-    送出對話並回傳助理回覆文字。
+    送出對話並回傳助理回覆。
 
     Parameters
     ----------
     messages:
-        OpenAI 格式的訊息列表，例如 ``[{"role": "user", "content": "你好"}]``。
+        訊息列表，例如 ``[{"role": "user", "content": "你好"}]``。
     model:
-        模型名稱；省略時使用環境變數 ``OLLAMA_MODEL``（預設 ``gemma4:e2b``）。
+        模型名稱；省略時使用 ``OLLAMA_MODEL``（預設 ``gemma4:e2b``）。
+    stream:
+        ``False``（預設）回傳完整 ``str``；``True`` 回傳文字增量 ``Iterator[str]``。
     system:
-        系統提示；省略時使用 ``AICENTRAL_SYSTEM_PROMPT``（預設要求繁體中文回覆）。
-        傳 ``""`` 可停用自動插入。若 ``messages`` 已含 ``role: system`` 則不覆寫。
+        系統提示；省略時使用 ``AICENTRAL_SYSTEM_PROMPT``。
+        傳 ``""`` 可停用自動插入。
     base_url:
         OpenAI 相容 API 根路徑；省略時使用 ``OLLAMA_BASE_URL``。
     api_key:
@@ -65,13 +98,16 @@ def complete(
     **kwargs:
         傳遞給 chat/completions 的額外參數（如 ``temperature``）。
     """
-    resolved_model = model or os.getenv("OLLAMA_MODEL", "gemma4:e2b")
+    resolved_model = _resolve_model(model)
     resolved_messages = _with_system_prompt(messages, system)
-
-    return chat_completions(
-        messages=resolved_messages,
-        model=resolved_model,
-        base_url=base_url,
-        api_key=api_key,
+    provider_kwargs = {
+        "messages": resolved_messages,
+        "model": resolved_model,
+        "base_url": base_url,
+        "api_key": api_key,
         **kwargs,
-    )
+    }
+
+    if stream:
+        return chat_completions_stream(**provider_kwargs)
+    return chat_completions(**provider_kwargs)

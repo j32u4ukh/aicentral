@@ -8,11 +8,13 @@ v0.1 用於 Ollama（/v1/chat/completions）；v0.4 可共用於其他 OpenAI �
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from typing import Any
 
 import httpx
 
 from aicentral.exceptions import ProviderError
+from aicentral.providers.streaming import extract_delta_content, parse_sse_data_line
 from aicentral.types import Message
 
 DEFAULT_TIMEOUT = 120.0
@@ -41,23 +43,14 @@ def chat_completions(
 
     extra 可傳 temperature 等 OpenAI 參數（Ollama 支援的子集）。
     """
-    url_base = _normalize_base_url(
-        base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    endpoint, headers, payload = _build_request(
+        messages=messages,
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        stream=False,
+        extra=extra,
     )
-    key = api_key if api_key is not None else os.getenv("OLLAMA_API_KEY", "ollama")
-
-    # TODO: 定義數據結構的類別, 並使用 Pydantic 進行驗證
-    payload: dict[str, Any] = {
-        "model": model,
-        "messages": to_openai_messages(messages),
-        **extra,
-    }
-
-    headers: dict[str, str] = {"Content-Type": "application/json"}
-    if key:
-        headers["Authorization"] = f"Bearer {key}"
-
-    endpoint = f"{url_base}/chat/completions"
 
     try:
         with httpx.Client(timeout=timeout) as client:
@@ -80,3 +73,70 @@ def chat_completions(
     if content is None:
         raise ProviderError(f"LLM 回應 content 為空: {data!r}")
     return str(content)
+
+
+def _build_request(
+    *,
+    messages: list[Message],
+    model: str,
+    base_url: str | None,
+    api_key: str | None,
+    stream: bool,
+    extra: dict[str, Any],
+) -> tuple[str, dict[str, str], dict[str, Any]]:
+    url_base = _normalize_base_url(
+        base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    )
+    key = api_key if api_key is not None else os.getenv("OLLAMA_API_KEY", "ollama")
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": to_openai_messages(messages),
+        "stream": stream,
+        **extra,
+    }
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    return f"{url_base}/chat/completions", headers, payload
+
+
+def chat_completions_stream(
+    *,
+    messages: list[Message],
+    model: str,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    **extra: Any,
+) -> Iterator[str]:
+    """串流呼叫 chat/completions，逐段 yield 助理文字增量。"""
+    endpoint, headers, payload = _build_request(
+        messages=messages,
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        stream=True,
+        extra=extra,
+    )
+
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            with client.stream("POST", endpoint, json=payload, headers=headers) as response:
+                if response.status_code >= 400:
+                    body = response.read().decode(errors="replace").strip()
+                    detail = body or response.reason_phrase
+                    raise ProviderError(
+                        f"LLM 端點回傳錯誤 {response.status_code}: {detail}",
+                        status_code=response.status_code,
+                    )
+                for line in response.iter_lines():
+                    chunk = parse_sse_data_line(line)
+                    if chunk is None:
+                        continue
+                    delta = extract_delta_content(chunk)
+                    if delta is not None:
+                        yield delta
+    except ProviderError:
+        raise
+    except httpx.RequestError as exc:
+        raise ProviderError(f"無法連線至 LLM 端點 {endpoint}: {exc}") from exc

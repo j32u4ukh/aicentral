@@ -1,12 +1,19 @@
 """
-Chat 工作階段：有狀態 / 無狀態多輪對話與歷史修剪（v1.1）。
+Chat 工作階段：有狀態 / 無狀態多輪對話、歷史修剪與串流（v1.1）。
+
+串流與歷史寫入（有狀態）：
+  complete(stream=True) 回傳迭代器，呼叫方每 consume 一個 delta 就收到一段文字；
+  底層 SSE 有封包即 yield，不會等全文收齊才開始輸出。
+  歷史寫入發生在迭代器**耗盡之後**：_complete_stateful_stream._iter 的 for 迴圈結束時
+  呼叫 _record_turn，將 user 與拼接後的完整 assistant 寫入 _history。
+  若中途例外或呼叫方提前停止迭代，_record_turn 不會執行，該輪不會進入歷史。
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from enum import StrEnum
-from typing import Any
+from typing import Any, overload
 
 from aicentral.client import complete
 from aicentral.exceptions import HistoryOverflowError
@@ -32,7 +39,11 @@ _SUMMARY_SYSTEM = (
 
 
 class Chat:
-    """可切換有狀態 / 無狀態的聊天工作階段。"""
+    """可切換有狀態 / 無狀態的聊天工作階段。
+
+    有狀態時，多輪紀錄保存在 ``_history``（僅 user/assistant，不含 system）。
+    system 由 ``complete()`` 在每次請求時透過參數或環境變數注入，不計入 ``max_messages``。
+    """
 
     def __init__(
         self,
@@ -52,6 +63,7 @@ class Chat:
         self._history_policy = history_policy
         self._base_url = base_url
         self._api_key = api_key
+        # 有狀態模式下的對話歷史；串流與非串流皆在 _record_turn 寫入此列表
         self._history: list[Message] = []
 
     @classmethod
@@ -77,18 +89,49 @@ class Chat:
         if mode == ChatMode.STATELESS and clear_on_stateless:
             self.clear()
 
+    @overload
     def complete(
         self,
         user_input: str,
         *,
+        stream: bool = False,
         context: list[Message] | None = None,
         **kwargs: Any,
-    ) -> str:
+    ) -> str: ...
+
+    @overload
+    def complete(
+        self,
+        user_input: str,
+        *,
+        stream: bool = True,
+        context: list[Message] | None = None,
+        **kwargs: Any,
+    ) -> Iterator[str]: ...
+
+    def complete(
+        self,
+        user_input: str,
+        *,
+        stream: bool = False,
+        context: list[Message] | None = None,
+        **kwargs: Any,
+    ) -> str | Iterator[str]:
         user_msg: Message = {"role": "user", "content": user_input}
+        request_messages = self._build_request_messages(user_msg, context=context)
 
         if self._mode == ChatMode.STATELESS:
-            prefix = list(context) if context else []
-            request_messages = [*prefix, user_msg]
+            # 無狀態：不寫入 _history；串流直接轉發底層迭代器
+            if stream:
+                return complete(
+                    messages=request_messages,
+                    model=self._model,
+                    system=self._system,
+                    base_url=self._base_url,
+                    api_key=self._api_key,
+                    stream=True,
+                    **kwargs,
+                )
             return complete(
                 messages=request_messages,
                 model=self._model,
@@ -98,7 +141,11 @@ class Chat:
                 **kwargs,
             )
 
-        request_messages = [*self._history, user_msg]
+        if stream:
+            # 有狀態串流：回傳包裝迭代器，歷史在迭代結束後寫入（見 _complete_stateful_stream）
+            return self._complete_stateful_stream(user_msg, request_messages, **kwargs)
+
+        # 有狀態、非串流：取得全文後立即寫入歷史
         reply = complete(
             messages=request_messages,
             model=self._model,
@@ -107,11 +154,54 @@ class Chat:
             api_key=self._api_key,
             **kwargs,
         )
+        self._record_turn(user_msg, reply)
+        return reply
+
+    def _build_request_messages(
+        self,
+        user_msg: Message,
+        *,
+        context: list[Message] | None,
+    ) -> list[Message]:
+        if self._mode == ChatMode.STATELESS:
+            prefix = list(context) if context else []
+            return [*prefix, user_msg]
+        return [*self._history, user_msg]
+
+    def _complete_stateful_stream(
+        self,
+        user_msg: Message,
+        request_messages: list[Message],
+        **kwargs: Any,
+    ) -> Iterator[str]:
+        """有狀態串流：邊收 SSE delta 邊 yield；全文收齊後才寫入 _history。"""
+        stream = complete(
+            messages=request_messages,
+            model=self._model,
+            system=self._system,
+            base_url=self._base_url,
+            api_key=self._api_key,
+            stream=True,
+            **kwargs,
+        )
+
+        def _iter() -> Iterator[str]:
+            chunks: list[str] = []
+            # 每收到一個 delta 立刻轉給呼叫方（終端可即時印出）
+            for delta in stream:
+                chunks.append(delta)
+                yield delta
+            # ★ 串流跑完、迭代器耗盡後，在此將本輪寫回歷史（非逐 delta 寫入）
+            self._record_turn(user_msg, "".join(chunks))
+
+        return _iter()
+
+    def _record_turn(self, user_msg: Message, reply: str) -> None:
+        """將一輪 user + assistant 追加至 _history，並依 policy 修剪。"""
         assistant_msg: Message = {"role": "assistant", "content": reply}
         self._history.append(user_msg)
         self._history.append(assistant_msg)
         self._maybe_trim_history()
-        return reply
 
     def clear(self) -> None:
         self._history.clear()
@@ -173,7 +263,6 @@ class Chat:
         del self._history[first_user:end]
 
     def _segment_compress(self) -> bool:
-        """壓縮最舊區段；成功回傳 True，無法壓縮回傳 False。"""
         if not self._history:
             return False
         window = min(_SEGMENT_WINDOW, len(self._history))
