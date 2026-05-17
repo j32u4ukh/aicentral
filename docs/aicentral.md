@@ -251,16 +251,17 @@ v1.0 的 Ollama 可視為 `openai_compat` + `base_url` 指向本機；v4.0 再�
 
 ---
 
-## v5.0 — 可選 HTTP Gateway
+## v5.0 — 可選 HTTP Gateway（本機）
+
+詳見 [aicentral-v5.0 .md](./aicentral-v5.0%20.md)。
 
 | 產出 | 說明 |
 |------|------|
-| `gateway/` | FastAPI、`POST /v1/chat/completions` |
+| `gateway/` | FastAPI、`POST /v1/chat/completions`、僅 `127.0.0.1` |
 | `pip install "aicentral[gateway]"` | 可選依賴 |
-| `docker/` | 容器化部署（可選） |
+| `python -m aicentral.gateway` | 本機啟動 |
 
-Gateway **只委派** `core.complete()`，不重寫 completion 邏輯。  
-對外安全（金鑰、限流、IP 白名單等）見 [security.md](./security.md)；第一版 Gateway 至少應達 **S1（強制 Master Key）**。
+Gateway **只委派** `core.complete()`。v5.0 **不**做 Docker 交付、**不**做 Master Key（僅可選 `optional_token`）。
 
 ---
 

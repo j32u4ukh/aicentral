@@ -85,8 +85,27 @@ class AppSettings(BaseModel):
     log_level: str = "INFO"
 
 
+class GatewaySettings(BaseModel):
+    """v5.0 HTTP Gateway（僅 localhost）。"""
+
+    enabled: bool = False
+    bind_host: str = "127.0.0.1"
+    bind_port: int = 8080
+    localhost_only: bool = True
+    reject_non_local_client: bool = True
+    max_body_bytes: int = 20_971_520
+    max_image_bytes: int = 10_485_760
+    allowed_image_mime: list[str] = Field(
+        default_factory=lambda: ["image/jpeg", "image/png", "image/webp", "image/gif"]
+    )
+    fetch_remote_images: bool = False
+    optional_token: str | None = None
+    default_model: str | None = None
+
+
 class AICentralConfig(BaseModel):
     app: AppSettings = Field(default_factory=AppSettings)
+    gateway: GatewaySettings = Field(default_factory=GatewaySettings)
     defaults: DefaultsSettings = Field(default_factory=DefaultsSettings)
     model_list: list[ModelEntry] = Field(default_factory=list)
     router: RouterSettings = Field(default_factory=RouterSettings)
