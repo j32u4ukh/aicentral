@@ -96,4 +96,4 @@ complete(messages=[...], model="gemma4:e2b")         # 仍相容
 | 套件版本 | **0.3.0** |
 | v2.0 多出什麼？ | 目錄骨架、model 路由、registry |
 | 新功能？ | 幾乎無；Chat／串流／歷史仍為 v1.1 |
-| 下一步 | v3.0 結構化輸出 |
+| 下一步 | v4.0 多供應商（v3.0 結構化見 [aicentral-v3.0.md](./aicentral-v3.0.md)） |

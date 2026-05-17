@@ -13,9 +13,11 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
 from enum import StrEnum
-from typing import Any, overload
+from typing import Any, TypeVar, overload
 
-from aicentral.core.client import complete
+from pydantic import BaseModel
+
+from aicentral.core.client import complete, complete_structured
 from aicentral.core.errors import HistoryOverflowError
 from aicentral.core.types import Message
 
@@ -31,6 +33,8 @@ class HistoryPolicy(StrEnum):
     SEGMENT_COMPRESS = "segment_compress"
     MANUAL = "manual"
 
+
+T = TypeVar("T", bound=BaseModel)
 
 _SEGMENT_WINDOW = 5
 _SUMMARY_SYSTEM = (
@@ -156,6 +160,30 @@ class Chat:
         )
         self._record_turn(user_msg, reply)
         return reply
+
+    def complete_structured(
+        self,
+        user_input: str,
+        *,
+        response_model: type[T],
+        context: list[Message] | None = None,
+        **kwargs: Any,
+    ) -> T:
+        """結構化完成一輪；有狀態時成功後將 JSON 寫入歷史。"""
+        user_msg: Message = {"role": "user", "content": user_input}
+        request_messages = self._build_request_messages(user_msg, context=context)
+        result = complete_structured(
+            messages=request_messages,
+            response_model=response_model,
+            model=self._model,
+            system=self._system,
+            base_url=self._base_url,
+            api_key=self._api_key,
+            **kwargs,
+        )
+        if self._mode == ChatMode.STATEFUL:
+            self._record_turn(user_msg, result.model_dump_json())
+        return result
 
     def _build_request_messages(
         self,

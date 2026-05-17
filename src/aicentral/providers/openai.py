@@ -28,7 +28,7 @@ def _normalize_base_url(base_url: str) -> str:
     return base_url.rstrip("/")
 
 
-def chat_completions(
+def chat_completions_raw(
     *,
     messages: list[Message],
     model: str,
@@ -36,8 +36,8 @@ def chat_completions(
     api_key: str | None = None,
     timeout: float = DEFAULT_TIMEOUT,
     **extra: Any,
-) -> str:
-    """呼叫 OpenAI 相容的 chat/completions，回傳助理文字內容。"""
+) -> dict[str, Any]:
+    """呼叫 chat/completions，回傳完整 JSON 回應（供結構化 extract 使用）。"""
     endpoint, headers, payload = _build_request(
         messages=messages,
         model=model,
@@ -61,6 +61,29 @@ def chat_completions(
         )
 
     data = response.json()
+    if not isinstance(data, dict):
+        raise ProviderError(f"無法解析 LLM 回應: {data!r}")
+    return data
+
+
+def chat_completions(
+    *,
+    messages: list[Message],
+    model: str,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    **extra: Any,
+) -> str:
+    """呼叫 OpenAI 相容的 chat/completions，回傳助理文字內容。"""
+    data = chat_completions_raw(
+        messages=messages,
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        timeout=timeout,
+        **extra,
+    )
     try:
         content = data["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:

@@ -1,7 +1,7 @@
 # aicentral v3.0 — 結構化輸出（Instructor-lite）
 
 > 規格基線：[aicentral.md](./aicentral.md) · 設計參考：[instructor.md](./instructor.md) · 上一版：[aicentral-v2.0.md](./aicentral-v2.0.md)  
-> 狀態：**規劃中**（目標函式庫 **v0.4.0**）
+> 狀態：**已實作**（函式庫 **v0.4.0**）
 
 ---
 
@@ -9,7 +9,7 @@
 
 v3.0 在既有 `complete()` / `Chat` 之上新增 **`complete_structured(response_model=...)`**，由消費方定義 Pydantic model，aicentral 負責 **schema 產生、呼叫模型、解析、驗證與可設定重試**；**不安裝** `instructor` 套件。
 
-> **重要**：截至函式庫 **v0.3.0**，結構化輸出**尚未實作**；本文件描述的是 **v3.0 規劃**（目標 **v0.4.0**）。下方「現況 vs 規劃」一節對照目前程式與本規格之差異。
+> **歷史**：v0.3.0 尚未有結構化輸出；**v0.4.0** 已依本文件實作 P0/P1（`mode=json` 仍為 P2）。下方「現況 vs 規劃」保留實作前後對照。
 
 ---
 
@@ -469,10 +469,10 @@ ollama pull gemma4:e2b   # 或文件指定型號
 
 **通過條件**：
 
-- [ ] `complete_structured` 在 mock 測試下穩定回傳 Pydantic 實例  
-- [ ] 既有 `complete` / `Chat` / `stream=True` 測試 **全部仍通過**（無回歸）  
-- [ ] `providers` 未依賴 `structured`  
-- [ ] 文件與 `__all__` 匯出 `complete_structured`  
+- [x] `complete_structured` 在 mock 測試下穩定回傳 Pydantic 實例  
+- [x] 既有 `complete` / `Chat` / `stream=True` 測試 **全部仍通過**（無回歸）  
+- [x] `providers` 未依賴 `structured`  
+- [x] 文件與 `__all__` 匯出 `complete_structured`  
 
 ---
 
