@@ -9,7 +9,7 @@
 | 你是… | 建議路徑 |
 |--------|----------|
 | **第一次接觸** | [concepts.md](./concepts.md) → [aicentral.md](./aicentral.md) |
-| **要接 Ollama / 改預設模型** | [routing.md](./routing.md)（`AICENTRAL_DEFAULT_MODEL`、`.env`） |
+| **要接 Ollama / 改預設模型** | [routing.md](./routing.md)（`config/aicentral.yaml`、`config/secret.yaml`） |
 | **要接 OpenAI / Claude / Gemini** | [routing.md](./routing.md) + [aicentral-v4.0.md](./aicentral-v4.0.md) |
 | **結構化輸出（Pydantic）** | [concepts.md](./concepts.md) → [aicentral-v3.0.md](./aicentral-v3.0.md) |
 | **MCP 工具** | [mcp.md](./mcp.md) |
@@ -37,7 +37,7 @@
 ### [routing.md](./routing.md) — 模型選路（庫內 Router）
 
 - **不是**後端 HTTP 接口；是程式內依 `model` 選 provider、金鑰、fallback
-- `parse_model`、`effective_model`（未傳 model 時用誰）、`AICENTRAL_DEFAULT_MODEL`
+- `parse_model`、`effective_model`（未傳 model 時用誰）、`defaults.model`
 - `config/aicentral.yaml` 別名、`router.fallbacks`（Ollama 失敗 → 雲端）
 - **適合**：換模型、多供應商、除錯「為什麼還是走 Ollama」
 
@@ -90,8 +90,8 @@
 | 資源 | 路徑 |
 |------|------|
 | 套件原始碼 | `../src/aicentral/` |
-| 環境變數範例 | [../.env.example](../.env.example) |
-| yaml 範例 | [../config/aicentral.yaml](../config/aicentral.yaml) |
+| yaml 主設定 | [../config/aicentral.yaml](../config/aicentral.yaml) |
+| 機密範例 | [../config/secret.yaml.example](../config/secret.yaml.example) |
 | 終端對話範例 | [../../aicentral-chat](../../aicentral-chat) |
 | 結構化範例 | [../../aicentral-structured-demo](../../aicentral-structured-demo) |
 

@@ -78,7 +78,15 @@ class DefaultsSettings(BaseModel):
     structured_mode: str | None = None
 
 
+class AppSettings(BaseModel):
+    """應用層執行環境（供消費方或日後 gateway 參考；庫核心不依賴）。"""
+
+    env: str = "development"
+    log_level: str = "INFO"
+
+
 class AICentralConfig(BaseModel):
+    app: AppSettings = Field(default_factory=AppSettings)
     defaults: DefaultsSettings = Field(default_factory=DefaultsSettings)
     model_list: list[ModelEntry] = Field(default_factory=list)
     router: RouterSettings = Field(default_factory=RouterSettings)

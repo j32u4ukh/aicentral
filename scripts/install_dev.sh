@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# 本機開發一鍵設定：.env（若缺少）+ .venv + 可編輯安裝
+# 本機開發一鍵設定：config/secret.yaml（若缺少）+ .venv + 可編輯安裝
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
 
-if [[ ! -f .env ]]; then
-  if [[ ! -f .env.example ]]; then
-    echo "error: .env.example not found" >&2
+if [[ ! -f config/secret.yaml ]]; then
+  if [[ ! -f config/secret.yaml.example ]]; then
+    echo "error: config/secret.yaml.example not found" >&2
     exit 1
   fi
-  cp .env.example .env
-  echo "Created .env from .env.example — ensure Ollama is running and OLLAMA_MODEL is pulled."
+  cp config/secret.yaml.example config/secret.yaml
+  echo "Created config/secret.yaml — edit secrets and ensure Ollama is running (ollama pull gemma4:e2b)."
 else
-  echo ".env already exists — skipping."
+  echo "config/secret.yaml already exists — skipping."
 fi
 
 if [[ ! -d .venv ]]; then

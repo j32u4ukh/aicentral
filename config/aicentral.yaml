@@ -1,5 +1,9 @@
 # aicentral 主設定（可提交版控）；機密請見 config/secret.yaml
 
+app:
+  env: development
+  log_level: INFO
+
 defaults:
   model: local-chat
   timeout: 120

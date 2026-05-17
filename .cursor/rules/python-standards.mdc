@@ -8,13 +8,14 @@ alwaysApply: false
 
 - Target Python 3.11+; use type hints on public functions and methods.
 - Prefer `pathlib.Path` over string paths.
-- Load secrets from environment via `python-dotenv`; never hardcode API keys.
+- Load secrets from `config/secret.yaml` via `get_secret()`; never hardcode API keys in source.
 - Use Pydantic models for structured LLM outputs (Instructor pattern).
 - Route LLM calls through LiteLLM when proxying or multi-provider support is needed.
 - Keep modules focused; put one-off tooling in `scripts/`, not in `src/aicentral/`.
 
 ```python
-# Prefer explicit env loading at app entry
-from dotenv import load_dotenv
-load_dotenv()
+from aicentral.config import get_config, get_secret
+
+cfg = get_config()
+api_key = get_secret("openai.api_key")
 ```
