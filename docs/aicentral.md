@@ -2,9 +2,10 @@
 
 > 參考：[litellm.md](./litellm.md)、[instructor.md](./instructor.md)  
 > 概念說明（`complete()` 用途等）：[concepts.md](./concepts.md)  
-> Gateway 安全規劃：[security.md](./security.md)  
-> v1.0 實作紀錄：[aicentral-v1.0.md](./aicentral-v1.0.md)  
+> Proxy 使用：[proxy.md](./proxy.md) · MCP 使用：[MCP server.md](./MCP%20server.md)  
 > 定位：輕量化合併 LiteLLM（統一呼叫）與 Instructor（結構化輸出）的設計思想，**不依賴** `litellm` / `instructor` 套件。
+
+**套件版本**以 [`pyproject.toml`](../pyproject.toml) 的 `version` 為準（目前 **0.5.0**）。下文「0.x」指套件 semver，與早期文件中的「v1.0～v5.0 里程碑」不同；歷史里程碑說明見文末連結。
 
 ---
 
@@ -12,304 +13,175 @@
 
 **aicentral 是提供給其他專案使用的 AI 能力函式庫（library）**，不是承載業務的應用服務：
 
-- ✅ 對外提供 `complete()` 等能力，由消費方 `import` 使用
-- ✅ 可選的 HTTP Gateway（後續版本）
+- ✅ 對外提供 `complete()`、`complete_structured()`、`Chat` 等，由消費方 `import` 使用
+- ✅ 可選 **HTTP Proxy**（`pip install "aicentral[gateway]"`、`python -m aicentral.gateway`）
+- ✅ 可選 **MCP 工具層**（`pip install "aicentral[mcp]"`、`MCPManager`）
 - ❌ 不在此 repo 封裝業務 API、領域 model、workflow
 - ❌ 業務邏輯放在**消費方專案**（例如 [`aicentral-chat`](../../aicentral-chat)）
 
 ```
 aicentral-chat / 你的後端
         │
-        │  from aicentral import complete
+        ├─ import：complete / Chat / complete_structured
+        ├─ HTTP：POST /v1/chat/completions（本機 Proxy）
+        └─ MCP：MCPManager.list_tools / call_tool
         ▼
    aicentral（能力層）
         │
-        ▼
-   Ollama（v1.0）/ 雲端 API（v4.0+）…
+        ├─ routing → providers（Ollama / OpenAI / Anthropic / Gemini）
+        └─ mcp/（外部工具，非 LLM）
 ```
 
 ---
 
-## 版本規劃總覽
+## 0.5.0 已交付能力
 
-| 版本 | 目標 | aicentral 產出 | 消費方範例 |
-|------|------|----------------|------------|
-| **v1.0**（第一版） | 能對話 | 一個 `complete()` + **Ollama**（OpenAI 相容 API） | `aicentral-chat` 迴圈腳本 |
-| **v2.0** | 好維護 | 拆出 `core/`、`routing/`、型別與錯誤 | 同上，可換 model 字串 |
-| **v3.0** | 結構化輸出 | `complete_structured()` + `structured/` | 消費方定義 Pydantic model |
-| **v4.0** | 多供應商 | 第二 provider、簡易 fallback | — |
-| **v5.0** | 跨語言呼叫 | 可選 `gateway/` + Docker | 非 Python 客戶端 |
+| 領域 | 模組 / API | 說明 |
+|------|------------|------|
+| 對話 | `complete()`、`Chat` | 統一 messages、串流、繁中語系等 |
+| 結構化 | `complete_structured()`、`structured/*` | Pydantic 驗證與重試 |
+| 路由 | `routing/parser`、`routing/router` | `provider/model`、yaml `model_list`、fallback |
+| 設定 | `config/loader`、`config/schema` | `config/aicentral.yaml` + `config/secret.yaml` |
+| 供應商 | `providers/*` | Ollama（OpenAI 相容）、OpenAI、Anthropic、Gemini |
+| MCP（基礎） | `mcp/client`、`mcp/manager` | stdio / http / sse；`list_tools` / `call_tool` |
+| Proxy | `gateway/*` | 本機 loopback、`POST /v1/chat/completions`、SSE |
 
-**原則**：每一版都可獨立跑通測試，不依賴上游 `litellm` / `instructor` 套件；只參考其設計與本機原始碼。
-
----
-
-## v1.0 — 第一版（當前目標）
-
-### 大模型來源：Ollama（OpenAI 相容協定）
-
-v1.0 **不直連 OpenAI 雲端**，改連本機 [Ollama](https://ollama.com) 提供的 **OpenAI 相容 API**：
-
-| 項目 | 說明 |
-|------|------|
-| 協定 | 與 OpenAI Chat Completions 相同（`POST /v1/chat/completions`） |
-| 預設 Base URL | `http://localhost:11434/v1` |
-| 模型名稱 | Ollama 本機已 pull 的名稱，例如 `llama3.2`、`qwen2.5` |
-| API Key | 通常不需要；實作可送占位字串 `ollama` 或留空（依 Ollama 版本） |
-
-前置條件（開發機）：
-
-```bash
-ollama serve          # 若尚未常駐
-ollama pull llama3.2  # 或你選定的模型
-```
-
-實作上仍用 **一個 OpenAI 相容的 HTTP client**（`providers/openai_compat.py`），透過環境變數切換 `base_url` 指向 Ollama，**不必**為 v1.0 另寫一套非 OpenAI 格式的 API。
-
-### 要做什麼
-
-1. **aicentral**：實作 `complete(messages, model=...)`，經 OpenAI 相容介面呼叫 **Ollama**，回傳助理文字。
-2. **aicentral-chat**：終端機迴圈腳本，讀取使用者輸入 → 呼叫 `complete()` → 印出回覆。
-
-### 驗收標準
+驗收（開發機）：
 
 ```powershell
-# 確認 Ollama 運行中，且已 pull 模型
-ollama list
-
-# aicentral repo
-pip install -e ".[dev]"
+cd aicentral
+pip install -e ".[dev,gateway,mcp]"
 pytest
 
-# aicentral-chat repo（依賴可編輯安裝的 aicentral）
-python chat.py
-# 輸入「你好」→ 收到本機 Ollama 模型回覆
+# 直接 import
+python -c "from aicentral import complete; print(complete([{'role':'user','content':'hi'}]))"
+
+# 本機 Proxy（另一終端）
+python -m aicentral.gateway
+
+# 消費方範例
+cd ..\aicentral-chat
+python chat.py          # import Chat
+python chat_http.py     # HTTP Proxy
 ```
 
-### v1.0 目錄結構（刻意極簡）
+---
+
+## 目錄結構（0.5.0）
 
 ```
 src/aicentral/
-├── __init__.py          # 匯出 complete
-├── client.py            # complete()：組裝請求、呼叫 provider、回傳 str
-└── providers/
-    └── openai_compat.py # httpx 呼叫 OpenAI 相容 API（v1.0 預設指向 Ollama）
+├── __init__.py          # complete、Chat、MCPManager、設定載入
+├── client.py / chat.py  # 高階 API
+├── core/                # complete、型別、錯誤
+├── providers/           # LLM 適配與 registry
+├── routing/             # parse_model、router、fallback
+├── structured/          # schema、extract、validate、retry
+├── config/              # yaml 載入、secret 展開
+├── mcp/                 # MCP client + manager（非 provider）
+└── gateway/             # 可選 FastAPI Proxy
 
-tests/
-└── test_complete.py     # mock HTTP 或整合測試（可選）
+config/
+├── aicentral.yaml       # defaults、model_list、router、mcp_servers、gateway
+└── secret.yaml          # 機密（勿提交；見 secret.yaml.example）
+
+tests/                   # core、providers、routing、structured、mcp、gateway
 ```
 
-> **協定分層**：`complete()` / `core` 使用與供應商無關的統一 `messages` 語意；`providers/` 再轉成各後端**實際** HTTP 協定（參考 LiteLLM 的 `llms/*`）。`openai_compat.py` 只是其中一種適配器——後端本身支援 OpenAI 相容格式（如 Ollama），並非所有 provider 都走同一協定；v4.0 若加 Anthropic 等需另寫 adapter。v5.0 的 Gateway 則像 LiteLLM Proxy，對**外部呼叫方**提供 OpenAI 相容 REST，內部仍委派 `core.complete()`。
+**依賴方向**：`gateway` → `core` → `providers` / `routing` / `structured`；`mcp` 可獨立使用，**禁止** `providers` 依賴 `structured` 或反向耦合 MCP 與 LLM fallback。
 
-**v1.0 刻意不做**：
-
-| 模組 / 設施 | 原因 |
-|-------------|------|
-| `routing/` | model 預設讀 `OLLAMA_MODEL`，或接受裸模型名如 `llama3.2` |
-| `structured/` | 對話範例不需要 `response_model` |
-| `gateway/`、`docker/` | 本地 Python 呼叫 Ollama 即可 |
-| `config/`（Pydantic Settings） | `.env` + `os.getenv` 足夠 |
-| `core/types.py`、`errors.py` | v2.0 再抽離 |
-| 雲端 OpenAI / Anthropic | v4.0 多供應商時再加入 |
-
-### v1.0 對外 API
-
-```python
-from aicentral import complete
-
-reply = complete(
-    messages=[
-        {"role": "user", "content": "你好"},
-    ],
-    # 不傳則用環境變數 OLLAMA_MODEL（例如 llama3.2）
-    model="llama3.2",
-)
-print(reply)  # str
-```
-
-`model` 在 v1.0 可直接傳 Ollama 模型名；v2.0 起可支援 `ollama/llama3.2` 這類帶 provider 前綴的寫法。
-
-實作可為同步；若用 `httpx` 非同步，提供 `acomplete()` 亦可，但 v1.0 二擇一即可。
-
-### v1.0 環境變數
-
-| 變數 | 預設 | 說明 |
-|------|------|------|
-| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | OpenAI 相容 API 根路徑 |
-| `OLLAMA_MODEL` | `llama3.2` | 預設模型（須已 `ollama pull`） |
-| `OLLAMA_API_KEY` | （空或 `ollama`） | 多數本機情境可省略 |
-
-### v1.0 依賴（`pyproject.toml`）
-
-| 套件 | 用途 |
-|------|------|
-| `httpx` | 呼叫 Ollama 的 OpenAI 相容端點 |
-| `python-dotenv` | 載入 `.env` |
-
-`pydantic` / `pydantic-settings` 留到 v3.0（結構化輸出）再引入（若 v1.0 尚未使用可從必要依賴移除）。
-
-### aicentral-chat（v1.0 消費方）
-
-aicentral-chat 是另一個獨立專案，不要在修改 aicentral 的同時去修改 aicentral-chat，畢竟 aicentral 還沒定版。
-
-與 aicentral 分 repo，職責僅為**示範如何引用函式庫**：
-
-```
-aicentral-chat/
-├── pyproject.toml       # 依賴 ../aicentral（path / editable）
-├── .env.example         # OLLAMA_BASE_URL、OLLAMA_MODEL
-├── chat.py              # while True: input → complete → print
-└── docs/README.md
-```
-
-**禁止**在 aicentral-chat 內直接 `httpx` 打 Ollama；一律經 `aicentral.complete()`。
-
-### v1.0 請求流程
-
-```
-complete(messages, model)
-  → client 決定 model（參數或 OLLAMA_MODEL）
-  → providers.openai_compat.chat(
-        base_url=OLLAMA_BASE_URL,
-        model=llama3.2,
-        ...
-    )
-  → POST {base_url}/chat/completions   # 與 OpenAI 相同 JSON
-  → 回傳 choices[0].message.content
-```
+**協定分層**：`core` 使用與供應商無關的 `messages` 語意；`providers/` 轉成各後端 HTTP；`gateway/` 對外提供 OpenAI 相容 REST，內部委派 `core.complete()`；`mcp/` 只處理工具協定，不產生 chat completion。
 
 ---
 
-## v2.0 — 模組化與路由
+## 設定與消費方
 
-在 v1.0 跑通後重構，對齊長期架構的「骨架」，仍只有 `complete()`：
-
-```
-src/aicentral/
-├── __init__.py
-├── core/
-│   ├── types.py         # Message、ChatResponse
-│   ├── errors.py        # ProviderError 等
-│   └── client.py        # complete() 入口
-├── providers/
-│   ├── base.py
-│   ├── registry.py
-│   └── openai.py
-└── routing/
-    └── parser.py        # "openai/gpt-4o-mini" → (provider, model_id)
-```
-
-| 產出 | 說明 |
+| 檔案 | 用途 |
 |------|------|
-| 型別化 messages | 不再只用 `list[dict]` |
-| `routing/parser` | 統一 model 字串格式 |
-| 測試分目錄 | `tests/providers/`、`tests/routing/` |
+| `config/aicentral.yaml` | 主設定：`defaults`、`model_list`、`router`、`mcp_servers`、`gateway` |
+| `config/secret.yaml` | 巢狀機密；`secret/ollama.api_key` 等形式由 loader 展開 |
 
----
-
-## v3.0 — 結構化輸出（Instructor-lite）
-
-| 產出 | 說明 |
-|------|------|
-| `structured/` | schema 產生、extract、validate、重試 |
-| `complete_structured(response_model=...)` | 回傳 Pydantic 實例 |
-| 依賴加入 `pydantic` | 設定可選 `pydantic-settings` |
-
-流程：
-
-```
-complete_structured(response_model=User)
-  → structured.schema.build(User)
-  → complete(..., tools=...)      # 仍走同一條 provider 路徑
-  → structured.extract / validate
-  → User 實例（失敗則重試，次數可設定）
-```
-
-消費方（非 aicentral repo）定義領域 model，例如：
-
-```python
-class Ticket(BaseModel):
-    title: str
-    priority: int
-
-ticket = complete_structured(messages=[...], response_model=Ticket, model="...")
-```
-
----
-
-## v4.0 — 多供應商與 fallback
-
-| 產出 | 說明 |
-|------|------|
-| `providers/openai.py`（雲端） | 與 v1.0 的 Ollama（`openai_compat`）並存 |
-| `providers/anthropic.py`（可選） | 第二家非 OpenAI 相容協定時再拆 |
-| `routing/router.py` | 設定檔驅動的簡易 fallback（例如 Ollama 失敗 → 雲端） |
-| `config/` | 模型別名、預設 model（yaml / env） |
-
-v1.0 的 Ollama 可視為 `openai_compat` + `base_url` 指向本機；v4.0 再增加指向 `api.openai.com` 的雲端設定。  
-仍不實作 100+ provider、adaptive router、Admin UI。
-
----
-
-## v5.0 — 可選 HTTP Gateway
-
-| 產出 | 說明 |
-|------|------|
-| `gateway/` | FastAPI、`POST /v1/chat/completions` |
-| `pip install "aicentral[gateway]"` | 可選依賴 |
-| `docker/` | 容器化部署（可選） |
-
-Gateway **只委派** `core.complete()`，不重寫 completion 邏輯。  
-對外安全（金鑰、限流、IP 白名單等）見 [security.md](./security.md)；第一版 Gateway 至少應達 **S1（強制 Master Key）**。
-
----
-
-## 目標架構（v2.0 之後逐步長成）
-
-完整形態供對照，**不必在 v1.0 一次建立**：
-
-```
-                    ┌─────────────────────────────────────┐
-  其他專案 / CLI     │  gateway（v5.0，可選）               │
-                    └──────────────┬──────────────────────┘
-                                   │
-                    ┌──────────────▼──────────────────────┐
-                    │  core — complete / complete_structured │
-                    └──────────────┬──────────────────────┘
-                                   │
-         ┌─────────────────────────┼─────────────────────────┐
-         │                         │                         │
-  ┌──────▼──────┐          ┌───────▼───────┐         ┌───────▼───────┐
-  │ providers   │          │ routing       │         │ structured    │
-  │ v1.0 起     │          │ v2.0 起       │         │ v3.0 起       │
-  └─────────────┘          └───────────────┘         └───────────────┘
-```
-
-**依賴方向**：`gateway` → `core` → `providers` / `routing` / `structured`  
-**禁止**：`providers` 依賴 `structured`。
+[`aicentral-chat`](../../aicentral-chat) 為獨立示範專案：`chat.py`（直接 `Chat`）、`chat_http.py`（本機 Proxy）。**禁止**在消費方直接 `httpx` 打 Ollama 或繞過 aicentral 的路由／設定。
 
 ---
 
 ## 與上游概念的對照
 
-| 上游 | aicentral 模組 | 最早版本 |
-|------|----------------|----------|
-| LiteLLM `completion()` | `complete()` | v1.0 |
-| LiteLLM `llms/*` | `providers/*`（v1.0：`openai_compat` → Ollama） | v1.0 |
-| LiteLLM `router_strategy/*` | `routing/*` | v2.0 |
-| Instructor `response_model` | `complete_structured()` + `structured/*` | v3.0 |
-| LiteLLM `proxy/*` | `gateway/*` | v5.0 |
-| 業務 / 對話 UI | **消費方**（`aicentral-chat` 等） | v1.0 起 |
+| 上游 | aicentral 模組 | 0.5.0 狀態 |
+|------|----------------|------------|
+| LiteLLM `completion()` | `complete()` | ✅ |
+| LiteLLM `llms/*` | `providers/*` | ✅ |
+| LiteLLM `router_strategy/*` | `routing/*` | ✅ |
+| Instructor `response_model` | `complete_structured()` + `structured/*` | ✅ |
+| LiteLLM `proxy/*` | `gateway/*`（本機） | ✅ |
+| LiteLLM `responses/mcp/` | `mcp/*` | ⚠️ 基礎 client；編排見下方 0.6+ |
+| 業務 / 對話 UI | **消費方**（`aicentral-chat` 等） | ✅ |
 
 ---
 
-## 倉庫內可延後的腳手架
+## 後續規劃：MCP 與工具編排（0.6+）
 
-以下存在於 repo 但**不阻擋 v1.0**，實作 `complete()` 前可忽略：
+0.5.0 已能透過 **`MCPManager`** 手動 `list_tools` / `call_tool`，但 **`complete()` / `Chat` / Proxy 尚未內建「模型 ↔ MCP 工具」自動迴圈**。下一階段以 MCP 為主軸，套件版本對照如下（與 `pyproject.toml` 同步遞增）：
 
-- `docker/` — v5.0 再用
-- `scripts/` — 輔助安裝與 `.env`，保留即可
-- `docs/litellm.md`、`instructor.md` — 設計參考，非執行必要
+| 版本 | 目標 | 主要產出 | 驗收 |
+|------|------|----------|------|
+| **0.6.0** | Library 工具編排 | `core` 辨識 OpenAI 風格 `tools` 中的 MCP 宣告；委派 `MCPManager` 執行 `call_tool`；`Chat` 可選開啟 tool loop | `complete(..., tools=[...])` 在設定內 MCP server 上跑通一輪 list → call → 再 complete |
+| **0.6.1** | Proxy 暴露 MCP | `gateway` 路由：`GET` 列出已設定 server 工具（或轉發 list_tools）；`POST` 代呼 `call_tool`；仍僅 loopback | curl / `aicentral-chat` 經 HTTP 觸發 MCP，不經手動 `MCPManager` |
+| **0.7.0** | 認證與營運 | MCP OAuth2 / bearer 與 `secret.yaml` 整合；`mcp_settings.allowed_tools` 強化；錯誤與逾時可觀測 | 至少一個需 token 的遠端 MCP server 端到端 |
+| **0.8.0+** | 進階（可選） | semantic tool filter、registry 一鍵匯入、與 `complete_structured` 共用重試策略 | 依需求再拆里程碑 |
+
+### 0.6.0 — `complete()` 與 MCP 編排（規劃）
+
+**原則**：MCP 仍**不**註冊為 `providers/mcp`；編排邏輯放在 `core/`（或薄層 `mcp/orchestrator.py`），由 `complete()` / `Chat` 在偵測到 MCP 工具時呼叫 `MCPManager`。
+
+```
+complete(messages, tools=[...])
+  → 分離一般 function tools 與 MCP 工具（server_name / aicentral/mcp/<name>）
+  → MCPManager.list_tools / call_tool
+  → 將 tool result 併回 messages
+  → 再走既有 routing → providers（不觸發 LLM fallback）
+```
+
+| 項目 | 說明 |
+|------|------|
+| 設定 | 沿用 `mcp_servers`、`mcp_settings`；機密 `secret/mcp.*` |
+| 依賴 | `pip install "aicentral[mcp]"`（`mcp>=1.6.0`） |
+| 錯誤 | `MCPError` 不觸發 router 的 provider fallback |
+| 刻意不做 | OAuth 全流程、semantic filter、對外網開放 MCP endpoint |
+
+### 0.6.1 — Proxy 與 MCP HTTP（規劃）
+
+對照 LiteLLM Proxy 的 MCP 掛載，在**本機** Gateway 增加最小 REST（路徑草案，實作時以程式為準）：
+
+| 方法 | 路徑（草案） | 行為 |
+|------|--------------|------|
+| `GET` | `/v1/mcp/servers` | 回傳 yaml 中已啟用 server 名稱 |
+| `GET` | `/v1/mcp/{server}/tools` | 轉發 `list_tools` |
+| `POST` | `/v1/mcp/{server}/tools/{tool}` | 轉發 `call_tool` |
+
+仍遵守 v5.0 Proxy 約束：僅 `127.0.0.1`、可選 `optional_token`、**不**在 Gateway 內實作完整 agent workflow（多輪規劃留給消費方）。
+
+### 消費方範例（規劃後）
+
+| 專案 | 0.5.0 | 0.6+ |
+|------|-------|------|
+| `aicentral-chat` | `chat.py`、`chat_http.py` | 可選 `chat_mcp.py`：示範 tool loop 或 HTTP MCP |
+
+詳細欄位與 LiteLLM 對照見 [MCP server.md](./MCP%20server.md)、[aicentral-v4.0.md](./aicentral-v4.0.md)（MCP 分層）、[aicentral-v5.0 .md](./aicentral-v5.0%20.md)（Proxy 與 v5.1 MCP HTTP 草案）。
+
+---
+
+## 歷史里程碑文件（已完成，供對照）
+
+早期路線圖以「v1.0～v5.0」描述漸進交付；對應能力已併入 **0.5.0**。細節請查各版紀錄，**勿**再當作待辦清單：
+
+| 文件 | 對應能力 |
+|------|----------|
+| [aicentral-v1.0.md](./aicentral-v1.0.md) | `complete()` + Ollama |
+| [aicentral-v2.0.md](./aicentral-v2.0.md) | `core/`、`routing/` |
+| [aicentral-v3.0.md](./aicentral-v3.0.md) | `structured/` |
+| [aicentral-v4.0.md](./aicentral-v4.0.md) | 多 provider、yaml、`mcp/` 基礎 |
+| [aicentral-v5.0.md](./aicentral-v5.0%20.md) | `gateway/` 本機 Proxy |
 
 ---
 
@@ -317,10 +189,10 @@ Gateway **只委派** `core.complete()`，不重寫 completion 邏輯。
 
 | 問題 | 答案 |
 |------|------|
-| 第一版要做什麼？ | **`complete()`** + **`aicentral-chat` 迴圈腳本** |
-| 第一版用大模型？ | **Ollama**（OpenAI 相容 API，本機 `11434`） |
-| 第一版目錄要多大？ | **`client.py` + `providers/openai_compat.py`** 即可 |
-| 完整架構何時做？ | **v2.0～v5.0 漸進**，見上方版本表 |
+| 目前版本？ | **0.5.0**（見 `pyproject.toml`） |
+| 現在能做什麼？ | 多供應商對話、結構化輸出、yaml 設定、MCP 手動呼叫、本機 HTTP Proxy |
+| 下一步做什麼？ | **0.6+**：`complete`/`Chat` 與 MCP 自動編排 → Proxy MCP HTTP → OAuth／進階營運 |
 | 業務放哪？ | **消費方專案**，不在 aicentral |
+| MCP 是 LLM 嗎？ | **否**；獨立 `mcp/` 模組，不經 `parse_model` 選 provider |
 
-實作 v1.0 時，以「能從終端機完成一輪對話」為唯一驗收；通過後再按版本表擴充模組。
+實作 0.6 時，以「設定內任一 MCP server 能在 `complete(..., tools=...)` 完成一輪 tool call」為首要驗收；通過後再擴充 Gateway 與認證。

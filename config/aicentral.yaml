@@ -65,3 +65,14 @@ aicentral_settings:
   system_prompt: |
     請一律使用繁體中文（臺灣正體）回覆，用語自然簡潔。若使用者使用其他語言提問，仍以繁體中文回答。
   drop_unsupported_params: true
+
+gateway:
+  enabled: true
+  bind_host: 127.0.0.1
+  bind_port: 8080
+  localhost_only: true
+  reject_non_local_client: true
+  max_body_bytes: 20971520
+  max_image_bytes: 10485760
+  fetch_remote_images: false
+  optional_token: null

@@ -21,7 +21,11 @@ DEFAULT_TIMEOUT = 120.0
 
 def to_openai_messages(messages: list[Message]) -> list[dict[str, Any]]:
     """將 aicentral Message 轉為 OpenAI chat/completions 的 messages 陣列。"""
-    return [{"role": m["role"], "content": m["content"]} for m in messages]
+    out: list[dict[str, Any]] = []
+    for m in messages:
+        content = m["content"]
+        out.append({"role": m["role"], "content": content})
+    return out
 
 
 def _normalize_base_url(base_url: str) -> str:

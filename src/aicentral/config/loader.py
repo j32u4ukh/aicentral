@@ -119,8 +119,22 @@ def load_config(
 
     raw = _load_yaml_mapping(main_path)
     expanded = expand_config_value(raw, secrets)
-    _CONFIG = AICentralConfig.model_validate(expanded)
+    cfg = AICentralConfig.model_validate(expanded)
+    _CONFIG = _merge_gateway_secrets(cfg, secrets)
     return _CONFIG
+
+
+def _merge_gateway_secrets(cfg: AICentralConfig, secrets: dict[str, Any]) -> AICentralConfig:
+    """``secret.yaml`` 的 ``gateway.optional_token`` 可覆寫主設定。"""
+    gw = secrets.get("gateway")
+    if not isinstance(gw, dict):
+        return cfg
+    token = gw.get("optional_token")
+    if token is None or token == "":
+        return cfg
+    return cfg.model_copy(
+        update={"gateway": cfg.gateway.model_copy(update={"optional_token": str(token)})}
+    )
 
 
 def get_config() -> AICentralConfig:
