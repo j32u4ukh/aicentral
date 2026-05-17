@@ -13,9 +13,14 @@ from typing import Any
 import httpx
 
 from aicentral.exceptions import ProviderError
+from aicentral.types import Message
 
-Message = dict[str, Any]
 DEFAULT_TIMEOUT = 120.0
+
+
+def to_openai_messages(messages: list[Message]) -> list[dict[str, Any]]:
+    """將 aicentral Message 轉為 OpenAI chat/completions 的 messages 陣列。"""
+    return [{"role": m["role"], "content": m["content"]} for m in messages]
 
 
 def _normalize_base_url(base_url: str) -> str:
@@ -44,7 +49,7 @@ def chat_completions(
     # TODO: 定義數據結構的類別, 並使用 Pydantic 進行驗證
     payload: dict[str, Any] = {
         "model": model,
-        "messages": messages,
+        "messages": to_openai_messages(messages),
         **extra,
     }
 

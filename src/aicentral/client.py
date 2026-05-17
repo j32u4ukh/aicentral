@@ -12,7 +12,8 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from aicentral.providers.openai_compat import Message, chat_completions
+from aicentral.providers.openai_compat import chat_completions
+from aicentral.types import Message
 
 # 載入專案根目錄 .env（開發時）
 load_dotenv()
