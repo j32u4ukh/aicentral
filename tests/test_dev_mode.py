@@ -23,13 +23,11 @@ def test_is_dev_mode_true(monkeypatch: pytest.MonkeyPatch) -> None:
     assert is_dev_mode() is True
 
 
-@patch("aicentral.core.client.get_provider_module")
-def test_structured_error_includes_assistant_summary(mock_get_provider: MagicMock) -> None:
-    provider = MagicMock()
-    provider.chat_completions_raw.return_value = {
+@patch("aicentral.core.client.invoke_resolved")
+def test_structured_error_includes_assistant_summary(mock_invoke: MagicMock) -> None:
+    mock_invoke.return_value = {
         "choices": [{"message": {"role": "assistant", "content": "你好"}}]
     }
-    mock_get_provider.return_value = provider
 
     with pytest.raises(StructuredNoPayloadError) as exc_info:
         complete_structured(

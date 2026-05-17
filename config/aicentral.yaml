@@ -1,0 +1,60 @@
+# aicentral v4.0 範例設定（可複製到專案根目錄或設 AICENTRAL_CONFIG）
+
+defaults:
+  model: local-chat
+  timeout: 120
+  structured_mode: tool
+
+model_list:
+  - model_name: local-chat
+    provider: ollama
+    params:
+      model_id: gemma4:e2b
+      api_base: os.environ/OLLAMA_BASE_URL
+      api_key: os.environ/OLLAMA_API_KEY
+
+  - model_name: cloud-chat
+    provider: openai
+    params:
+      model_id: gpt-4o-mini
+      api_base: https://api.openai.com/v1
+      api_key: os.environ/OPENAI_API_KEY
+    timeout: 60
+
+  - model_name: claude-sonnet
+    provider: anthropic
+    params:
+      model_id: claude-sonnet-4-20250514
+      api_base: https://api.anthropic.com
+      api_key: os.environ/ANTHROPIC_API_KEY
+      api_version: "2023-06-01"
+
+  - model_name: gemini-flash
+    provider: gemini
+    params:
+      model_id: gemini-2.0-flash
+      api_key: os.environ/GEMINI_API_KEY
+
+router:
+  fallbacks:
+    - model_name: local-chat
+      fallbacks: [cloud-chat]
+  fallback_on:
+    - connection_error
+    - timeout
+
+mcp_servers:
+  deepwiki:
+    transport: http
+    url: https://mcp.deepwiki.com/mcp
+    description: DeepWiki MCP
+    timeout: 30
+    auth_type: none
+
+mcp_settings:
+  tool_name_prefix: true
+  client_timeout: 30
+
+aicentral_settings:
+  dev: false
+  drop_unsupported_params: true

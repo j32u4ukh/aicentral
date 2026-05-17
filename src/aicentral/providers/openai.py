@@ -50,14 +50,23 @@ def chat_completions_raw(
     try:
         with httpx.Client(timeout=timeout) as client:
             response = client.post(endpoint, json=payload, headers=headers)
+    except httpx.TimeoutException as exc:
+        raise ProviderError(
+            f"LLM 端點請求逾時 {endpoint}: {exc}",
+            failure_kind="timeout",
+        ) from exc
     except httpx.RequestError as exc:
-        raise ProviderError(f"無法連線至 LLM 端點 {endpoint}: {exc}") from exc
+        raise ProviderError(
+            f"無法連線至 LLM 端點 {endpoint}: {exc}",
+            failure_kind="connection_error",
+        ) from exc
 
     if response.status_code >= 400:
         detail = response.text.strip() or response.reason_phrase
         raise ProviderError(
             f"LLM 端點回傳錯誤 {response.status_code}: {detail}",
             status_code=response.status_code,
+            failure_kind="http",
         )
 
     data = response.json()
@@ -156,5 +165,13 @@ def chat_completions_stream(
                         yield delta
     except ProviderError:
         raise
+    except httpx.TimeoutException as exc:
+        raise ProviderError(
+            f"LLM 端點請求逾時 {endpoint}: {exc}",
+            failure_kind="timeout",
+        ) from exc
     except httpx.RequestError as exc:
-        raise ProviderError(f"無法連線至 LLM 端點 {endpoint}: {exc}") from exc
+        raise ProviderError(
+            f"無法連線至 LLM 端點 {endpoint}: {exc}",
+            failure_kind="connection_error",
+        ) from exc

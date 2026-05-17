@@ -6,6 +6,7 @@ import os
 from typing import NamedTuple
 
 DEFAULT_PROVIDER = "ollama"
+KNOWN_PROVIDERS = frozenset({"ollama", "openai", "anthropic", "gemini"})
 
 
 class ParsedModel(NamedTuple):
@@ -32,6 +33,10 @@ def parse_model(model: str | None) -> ParsedModel:
         model_id = model_id.strip()
         if not provider or not model_id:
             raise ValueError(f"無效的 model 字串: {model!r}")
+        if provider not in KNOWN_PROVIDERS:
+            raise ValueError(
+                f"未知 provider: {provider!r}（可用: {', '.join(sorted(KNOWN_PROVIDERS))}）"
+            )
         return ParsedModel(provider, model_id)
 
     return ParsedModel(DEFAULT_PROVIDER, text)

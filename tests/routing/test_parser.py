@@ -25,6 +25,11 @@ def test_parse_model_invalid_raises() -> None:
         parse_model("ollama/")
 
 
+def test_parse_model_unknown_provider_raises() -> None:
+    with pytest.raises(ValueError, match="未知 provider"):
+        parse_model("unknown/foo")
+
+
 def test_complete_unknown_provider() -> None:
     from aicentral import complete
 

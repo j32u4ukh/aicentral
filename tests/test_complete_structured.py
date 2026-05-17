@@ -26,13 +26,9 @@ def _raw_with_args(arguments: str) -> dict:
     }
 
 
-@patch("aicentral.core.client.get_provider_module")
-def test_complete_structured_success(mock_get_provider: MagicMock) -> None:
-    provider = MagicMock()
-    provider.chat_completions_raw.return_value = _raw_with_args(
-        '{"title": "伺服器當機", "priority": 4}'
-    )
-    mock_get_provider.return_value = provider
+@patch("aicentral.core.client.invoke_resolved")
+def test_complete_structured_success(mock_invoke: MagicMock) -> None:
+    mock_invoke.return_value = _raw_with_args('{"title": "伺服器當機", "priority": 4}')
 
     ticket = complete_structured(
         messages=[{"role": "user", "content": "很急"}],
@@ -42,16 +38,12 @@ def test_complete_structured_success(mock_get_provider: MagicMock) -> None:
 
     assert isinstance(ticket, Ticket)
     assert ticket.title == "伺服器當機"
-    assert provider.chat_completions_raw.call_count == 1
+    assert mock_invoke.call_count == 1
 
 
-@patch("aicentral.core.client.get_provider_module")
-def test_complete_structured_single_call_on_validation_error(mock_get_provider: MagicMock) -> None:
-    provider = MagicMock()
-    provider.chat_completions_raw.return_value = _raw_with_args(
-        '{"title": "x", "priority": 99}'
-    )
-    mock_get_provider.return_value = provider
+@patch("aicentral.core.client.invoke_resolved")
+def test_complete_structured_single_call_on_validation_error(mock_invoke: MagicMock) -> None:
+    mock_invoke.return_value = _raw_with_args('{"title": "x", "priority": 99}')
 
     with pytest.raises(StructuredValidationError) as exc_info:
         complete_structured(
@@ -60,7 +52,7 @@ def test_complete_structured_single_call_on_validation_error(mock_get_provider: 
         )
 
     assert exc_info.value.failure_kind.value == "validation"
-    assert provider.chat_completions_raw.call_count == 1
+    assert mock_invoke.call_count == 1
 
 
 def test_complete_structured_rejects_max_retries_kwarg() -> None:
@@ -81,10 +73,9 @@ def test_complete_structured_rejects_stream() -> None:
         )
 
 
-@patch("aicentral.core.client.get_provider_module")
-def test_complete_structured_json_mode(mock_get_provider: MagicMock) -> None:
-    provider = MagicMock()
-    provider.chat_completions_raw.return_value = {
+@patch("aicentral.core.client.invoke_resolved")
+def test_complete_structured_json_mode(mock_invoke: MagicMock) -> None:
+    mock_invoke.return_value = {
         "choices": [
             {
                 "message": {
@@ -94,7 +85,6 @@ def test_complete_structured_json_mode(mock_get_provider: MagicMock) -> None:
             }
         ]
     }
-    mock_get_provider.return_value = provider
 
     ticket = complete_structured(
         messages=[{"role": "user", "content": "test"}],
@@ -102,5 +92,5 @@ def test_complete_structured_json_mode(mock_get_provider: MagicMock) -> None:
         mode="json",
     )
     assert ticket.title == "json-path"
-    call_kwargs = provider.chat_completions_raw.call_args.kwargs
+    call_kwargs = mock_invoke.call_args.kwargs
     assert "tools" not in call_kwargs
