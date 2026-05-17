@@ -1,6 +1,6 @@
-# aicentral v0.1 實作紀錄
+# aicentral v1.0 實作紀錄
 
-> 規格：[aicentral.md](./aicentral.md) v0.1 章節  
+> 規格：[aicentral.md](./aicentral.md) v1.0 章節  
 > 狀態：**已實作**（函式庫本體；`aicentral-chat` 由消費方專案另行完成）
 
 ---
@@ -33,7 +33,7 @@ tests/
 └── test_complete.py         # mock httpx
 ```
 
-較規劃多出的 `exceptions.py`：v0.1 需區分連線失敗與 HTTP 錯誤，暫放根目錄，v0.2 移至 `core/errors.py`。
+較規劃多出的 `exceptions.py`：v1.0 需區分連線失敗與 HTTP 錯誤，暫放根目錄，v0.2 移至 `core/errors.py`。
 
 ---
 
@@ -55,8 +55,8 @@ complete(messages, model?)
 | LiteLLM 概念 | 本專案對應 | 說明 |
 |--------------|------------|------|
 | `completion()` / `litellm.completion` | `complete()` | 統一函式入口，呼叫方只傳 `messages` + `model` |
-| `litellm/llms/*` 供應商適配 | `providers/openai_compat.py` | 負責 HTTP 與請求/回應格式；v0.1 僅實作 OpenAI 相容這一支 |
-| `model="provider/model"` 分派 | v0.1 省略 | 尚未有 `routing/`；預設 Ollama，model 為裸名如 `llama3.2` |
+| `litellm/llms/*` 供應商適配 | `providers/openai_compat.py` | 負責 HTTP 與請求/回應格式；v1.0 僅實作 OpenAI 相容這一支 |
+| `model="provider/model"` 分派 | v1.0 省略 | 尚未有 `routing/`；預設 Ollama，model 為裸名如 `llama3.2` |
 | OpenAI chat `endpoint = "chat/completions"` | `POST .../v1/chat/completions` | 與 `litellm/llms/openai/chat` 相同端點慣例 |
 | `get_secret_str("OLLAMA_API_BASE")` 等 env | `OLLAMA_BASE_URL`、`OLLAMA_MODEL`、`OLLAMA_API_KEY` | 從環境讀取，不硬編碼金鑰 |
 | `ProviderError` / HTTP 錯誤處理 | `exceptions.ProviderError` | 連線失敗、4xx/5xx、JSON 解析失敗 |
@@ -65,7 +65,7 @@ complete(messages, model?)
 **未採用（留待後續版本）**：
 
 - LiteLLM Proxy / `master_key`、virtual keys → v0.5 `gateway/` + [security.md](./security.md)
-- `litellm/llms/ollama/chat` 原生 Ollama API → v0.1 刻意改用 Ollama **OpenAI 相容** `/v1`，減少轉換程式碼
+- `litellm/llms/ollama/chat` 原生 Ollama API → v1.0 刻意改用 Ollama **OpenAI 相容** `/v1`，減少轉換程式碼
 - Router、fallback、100+ providers → v0.2～v0.4
 - 串流、`stream=True` → 未實作
 - tiktoken、用量追蹤 → 未實作
@@ -74,14 +74,14 @@ complete(messages, model?)
 
 ## 參考 Instructor 的部分
 
-| Instructor 概念 | v0.1 狀態 | 說明 |
+| Instructor 概念 | v1.0 狀態 | 說明 |
 |-----------------|-----------|------|
 | `response_model` + Pydantic | ❌ 未實作 | 留 v0.3 `complete_structured()` |
 | `from_provider("openai/...")` 統一入口 | 部分借鑒 | 僅借「單一 `complete` 入口」思想，尚無 provider 字串解析 |
 | 驗證失敗重試 | ❌ | v0.3 `structured/validate.py` |
-| Pydantic 依賴 | ❌ v0.1 未引入 | `pyproject.toml` 僅 `httpx` + `python-dotenv` |
+| Pydantic 依賴 | ❌ v1.0 未引入 | `pyproject.toml` 僅 `httpx` + `python-dotenv` |
 
-v0.1 **本質上是 LiteLLM 的 completion 子集**，Instructor 能力在 v0.3 才合入。
+v1.0 **本質上是 LiteLLM 的 completion 子集**，Instructor 能力在 v0.3 才合入。
 
 ---
 
@@ -131,7 +131,7 @@ pytest
 
 ---
 
-## 已知限制（v0.1）
+## 已知限制（v1.0）
 
 - 僅同步 `complete()`，無 `acomplete()`。
 - 不支援串流回應。

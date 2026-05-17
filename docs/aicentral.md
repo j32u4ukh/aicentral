@@ -3,7 +3,7 @@
 > 參考：[litellm.md](./litellm.md)、[instructor.md](./instructor.md)  
 > 概念說明（`complete()` 用途等）：[concepts.md](./concepts.md)  
 > Gateway 安全規劃：[security.md](./security.md)  
-> v0.1 實作紀錄：[aicentral-v0.1.md](./aicentral-v0.1.md)  
+> v1.0 實作紀錄：[aicentral-v1.0.md](./aicentral-v1.0.md)  
 > 定位：輕量化合併 LiteLLM（統一呼叫）與 Instructor（結構化輸出）的設計思想，**不依賴** `litellm` / `instructor` 套件。
 
 ---
@@ -25,7 +25,7 @@ aicentral-chat / 你的後端
    aicentral（能力層）
         │
         ▼
-   Ollama（v0.1）/ 雲端 API（v0.4+）…
+   Ollama（v1.0）/ 雲端 API（v4.0+）…
 ```
 
 ---
@@ -34,21 +34,21 @@ aicentral-chat / 你的後端
 
 | 版本 | 目標 | aicentral 產出 | 消費方範例 |
 |------|------|----------------|------------|
-| **v0.1**（第一版） | 能對話 | 一個 `complete()` + **Ollama**（OpenAI 相容 API） | `aicentral-chat` 迴圈腳本 |
-| **v0.2** | 好維護 | 拆出 `core/`、`routing/`、型別與錯誤 | 同上，可換 model 字串 |
-| **v0.3** | 結構化輸出 | `complete_structured()` + `structured/` | 消費方定義 Pydantic model |
-| **v0.4** | 多供應商 | 第二 provider、簡易 fallback | — |
-| **v0.5** | 跨語言呼叫 | 可選 `gateway/` + Docker | 非 Python 客戶端 |
+| **v1.0**（第一版） | 能對話 | 一個 `complete()` + **Ollama**（OpenAI 相容 API） | `aicentral-chat` 迴圈腳本 |
+| **v2.0** | 好維護 | 拆出 `core/`、`routing/`、型別與錯誤 | 同上，可換 model 字串 |
+| **v3.0** | 結構化輸出 | `complete_structured()` + `structured/` | 消費方定義 Pydantic model |
+| **v4.0** | 多供應商 | 第二 provider、簡易 fallback | — |
+| **v5.0** | 跨語言呼叫 | 可選 `gateway/` + Docker | 非 Python 客戶端 |
 
 **原則**：每一版都可獨立跑通測試，不依賴上游 `litellm` / `instructor` 套件；只參考其設計與本機原始碼。
 
 ---
 
-## v0.1 — 第一版（當前目標）
+## v1.0 — 第一版（當前目標）
 
 ### 大模型來源：Ollama（OpenAI 相容協定）
 
-v0.1 **不直連 OpenAI 雲端**，改連本機 [Ollama](https://ollama.com) 提供的 **OpenAI 相容 API**：
+v1.0 **不直連 OpenAI 雲端**，改連本機 [Ollama](https://ollama.com) 提供的 **OpenAI 相容 API**：
 
 | 項目 | 說明 |
 |------|------|
@@ -64,7 +64,7 @@ ollama serve          # 若尚未常駐
 ollama pull llama3.2  # 或你選定的模型
 ```
 
-實作上仍用 **一個 OpenAI 相容的 HTTP client**（`providers/openai_compat.py`），透過環境變數切換 `base_url` 指向 Ollama，**不必**為 v0.1 另寫一套非 OpenAI 格式的 API。
+實作上仍用 **一個 OpenAI 相容的 HTTP client**（`providers/openai_compat.py`），透過環境變數切換 `base_url` 指向 Ollama，**不必**為 v1.0 另寫一套非 OpenAI 格式的 API。
 
 ### 要做什麼
 
@@ -86,22 +86,22 @@ python chat.py
 # 輸入「你好」→ 收到本機 Ollama 模型回覆
 ```
 
-### v0.1 目錄結構（刻意極簡）
+### v1.0 目錄結構（刻意極簡）
 
 ```
 src/aicentral/
 ├── __init__.py          # 匯出 complete
 ├── client.py            # complete()：組裝請求、呼叫 provider、回傳 str
 └── providers/
-    └── openai_compat.py # httpx 呼叫 OpenAI 相容 API（v0.1 預設指向 Ollama）
+    └── openai_compat.py # httpx 呼叫 OpenAI 相容 API（v1.0 預設指向 Ollama）
 
 tests/
 └── test_complete.py     # mock HTTP 或整合測試（可選）
 ```
 
-> **協定分層**：`complete()` / `core` 使用與供應商無關的統一 `messages` 語意；`providers/` 再轉成各後端**實際** HTTP 協定（參考 LiteLLM 的 `llms/*`）。`openai_compat.py` 只是其中一種適配器——後端本身支援 OpenAI 相容格式（如 Ollama），並非所有 provider 都走同一協定；v0.4 若加 Anthropic 等需另寫 adapter。v0.5 的 Gateway 則像 LiteLLM Proxy，對**外部呼叫方**提供 OpenAI 相容 REST，內部仍委派 `core.complete()`。
+> **協定分層**：`complete()` / `core` 使用與供應商無關的統一 `messages` 語意；`providers/` 再轉成各後端**實際** HTTP 協定（參考 LiteLLM 的 `llms/*`）。`openai_compat.py` 只是其中一種適配器——後端本身支援 OpenAI 相容格式（如 Ollama），並非所有 provider 都走同一協定；v4.0 若加 Anthropic 等需另寫 adapter。v5.0 的 Gateway 則像 LiteLLM Proxy，對**外部呼叫方**提供 OpenAI 相容 REST，內部仍委派 `core.complete()`。
 
-**v0.1 刻意不做**：
+**v1.0 刻意不做**：
 
 | 模組 / 設施 | 原因 |
 |-------------|------|
@@ -109,10 +109,10 @@ tests/
 | `structured/` | 對話範例不需要 `response_model` |
 | `gateway/`、`docker/` | 本地 Python 呼叫 Ollama 即可 |
 | `config/`（Pydantic Settings） | `.env` + `os.getenv` 足夠 |
-| `core/types.py`、`errors.py` | v0.2 再抽離 |
-| 雲端 OpenAI / Anthropic | v0.4 多供應商時再加入 |
+| `core/types.py`、`errors.py` | v2.0 再抽離 |
+| 雲端 OpenAI / Anthropic | v4.0 多供應商時再加入 |
 
-### v0.1 對外 API
+### v1.0 對外 API
 
 ```python
 from aicentral import complete
@@ -127,11 +127,11 @@ reply = complete(
 print(reply)  # str
 ```
 
-`model` 在 v0.1 可直接傳 Ollama 模型名；v0.2 起可支援 `ollama/llama3.2` 這類帶 provider 前綴的寫法。
+`model` 在 v1.0 可直接傳 Ollama 模型名；v2.0 起可支援 `ollama/llama3.2` 這類帶 provider 前綴的寫法。
 
-實作可為同步；若用 `httpx` 非同步，提供 `acomplete()` 亦可，但 v0.1 二擇一即可。
+實作可為同步；若用 `httpx` 非同步，提供 `acomplete()` 亦可，但 v1.0 二擇一即可。
 
-### v0.1 環境變數
+### v1.0 環境變數
 
 | 變數 | 預設 | 說明 |
 |------|------|------|
@@ -139,16 +139,16 @@ print(reply)  # str
 | `OLLAMA_MODEL` | `llama3.2` | 預設模型（須已 `ollama pull`） |
 | `OLLAMA_API_KEY` | （空或 `ollama`） | 多數本機情境可省略 |
 
-### v0.1 依賴（`pyproject.toml`）
+### v1.0 依賴（`pyproject.toml`）
 
 | 套件 | 用途 |
 |------|------|
 | `httpx` | 呼叫 Ollama 的 OpenAI 相容端點 |
 | `python-dotenv` | 載入 `.env` |
 
-`pydantic` / `pydantic-settings` 留到 v0.3（結構化輸出）再引入（若 v0.1 尚未使用可從必要依賴移除）。
+`pydantic` / `pydantic-settings` 留到 v3.0（結構化輸出）再引入（若 v1.0 尚未使用可從必要依賴移除）。
 
-### aicentral-chat（v0.1 消費方）
+### aicentral-chat（v1.0 消費方）
 
 aicentral-chat 是另一個獨立專案，不要在修改 aicentral 的同時去修改 aicentral-chat，畢竟 aicentral 還沒定版。
 
@@ -164,7 +164,7 @@ aicentral-chat/
 
 **禁止**在 aicentral-chat 內直接 `httpx` 打 Ollama；一律經 `aicentral.complete()`。
 
-### v0.1 請求流程
+### v1.0 請求流程
 
 ```
 complete(messages, model)
@@ -180,9 +180,9 @@ complete(messages, model)
 
 ---
 
-## v0.2 — 模組化與路由
+## v2.0 — 模組化與路由
 
-在 v0.1 跑通後重構，對齊長期架構的「骨架」，仍只有 `complete()`：
+在 v1.0 跑通後重構，對齊長期架構的「骨架」，仍只有 `complete()`：
 
 ```
 src/aicentral/
@@ -207,7 +207,7 @@ src/aicentral/
 
 ---
 
-## v0.3 — 結構化輸出（Instructor-lite）
+## v3.0 — 結構化輸出（Instructor-lite）
 
 | 產出 | 說明 |
 |------|------|
@@ -237,21 +237,21 @@ ticket = complete_structured(messages=[...], response_model=Ticket, model="...")
 
 ---
 
-## v0.4 — 多供應商與 fallback
+## v4.0 — 多供應商與 fallback
 
 | 產出 | 說明 |
 |------|------|
-| `providers/openai.py`（雲端） | 與 v0.1 的 Ollama（`openai_compat`）並存 |
+| `providers/openai.py`（雲端） | 與 v1.0 的 Ollama（`openai_compat`）並存 |
 | `providers/anthropic.py`（可選） | 第二家非 OpenAI 相容協定時再拆 |
 | `routing/router.py` | 設定檔驅動的簡易 fallback（例如 Ollama 失敗 → 雲端） |
 | `config/` | 模型別名、預設 model（yaml / env） |
 
-v0.1 的 Ollama 可視為 `openai_compat` + `base_url` 指向本機；v0.4 再增加指向 `api.openai.com` 的雲端設定。  
+v1.0 的 Ollama 可視為 `openai_compat` + `base_url` 指向本機；v4.0 再增加指向 `api.openai.com` 的雲端設定。  
 仍不實作 100+ provider、adaptive router、Admin UI。
 
 ---
 
-## v0.5 — 可選 HTTP Gateway
+## v5.0 — 可選 HTTP Gateway
 
 | 產出 | 說明 |
 |------|------|
@@ -264,13 +264,13 @@ Gateway **只委派** `core.complete()`，不重寫 completion 邏輯。
 
 ---
 
-## 目標架構（v0.2 之後逐步長成）
+## 目標架構（v2.0 之後逐步長成）
 
-完整形態供對照，**不必在 v0.1 一次建立**：
+完整形態供對照，**不必在 v1.0 一次建立**：
 
 ```
                     ┌─────────────────────────────────────┐
-  其他專案 / CLI     │  gateway（v0.5，可選）               │
+  其他專案 / CLI     │  gateway（v5.0，可選）               │
                     └──────────────┬──────────────────────┘
                                    │
                     ┌──────────────▼──────────────────────┐
@@ -281,7 +281,7 @@ Gateway **只委派** `core.complete()`，不重寫 completion 邏輯。
          │                         │                         │
   ┌──────▼──────┐          ┌───────▼───────┐         ┌───────▼───────┐
   │ providers   │          │ routing       │         │ structured    │
-  │ v0.1 起     │          │ v0.2 起       │         │ v0.3 起       │
+  │ v1.0 起     │          │ v2.0 起       │         │ v3.0 起       │
   └─────────────┘          └───────────────┘         └───────────────┘
 ```
 
@@ -294,20 +294,20 @@ Gateway **只委派** `core.complete()`，不重寫 completion 邏輯。
 
 | 上游 | aicentral 模組 | 最早版本 |
 |------|----------------|----------|
-| LiteLLM `completion()` | `complete()` | v0.1 |
-| LiteLLM `llms/*` | `providers/*`（v0.1：`openai_compat` → Ollama） | v0.1 |
-| LiteLLM `router_strategy/*` | `routing/*` | v0.2 |
-| Instructor `response_model` | `complete_structured()` + `structured/*` | v0.3 |
-| LiteLLM `proxy/*` | `gateway/*` | v0.5 |
-| 業務 / 對話 UI | **消費方**（`aicentral-chat` 等） | v0.1 起 |
+| LiteLLM `completion()` | `complete()` | v1.0 |
+| LiteLLM `llms/*` | `providers/*`（v1.0：`openai_compat` → Ollama） | v1.0 |
+| LiteLLM `router_strategy/*` | `routing/*` | v2.0 |
+| Instructor `response_model` | `complete_structured()` + `structured/*` | v3.0 |
+| LiteLLM `proxy/*` | `gateway/*` | v5.0 |
+| 業務 / 對話 UI | **消費方**（`aicentral-chat` 等） | v1.0 起 |
 
 ---
 
 ## 倉庫內可延後的腳手架
 
-以下存在於 repo 但**不阻擋 v0.1**，實作 `complete()` 前可忽略：
+以下存在於 repo 但**不阻擋 v1.0**，實作 `complete()` 前可忽略：
 
-- `docker/` — v0.5 再用
+- `docker/` — v5.0 再用
 - `scripts/` — 輔助安裝與 `.env`，保留即可
 - `docs/litellm.md`、`instructor.md` — 設計參考，非執行必要
 
@@ -320,7 +320,7 @@ Gateway **只委派** `core.complete()`，不重寫 completion 邏輯。
 | 第一版要做什麼？ | **`complete()`** + **`aicentral-chat` 迴圈腳本** |
 | 第一版用大模型？ | **Ollama**（OpenAI 相容 API，本機 `11434`） |
 | 第一版目錄要多大？ | **`client.py` + `providers/openai_compat.py`** 即可 |
-| 完整架構何時做？ | **v0.2～v0.5 漸進**，見上方版本表 |
+| 完整架構何時做？ | **v2.0～v5.0 漸進**，見上方版本表 |
 | 業務放哪？ | **消費方專案**，不在 aicentral |
 
-實作 v0.1 時，以「能從終端機完成一輪對話」為唯一驗收；通過後再按版本表擴充模組。
+實作 v1.0 時，以「能從終端機完成一輪對話」為唯一驗收；通過後再按版本表擴充模組。
