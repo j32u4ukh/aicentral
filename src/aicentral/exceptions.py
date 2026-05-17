@@ -4,12 +4,18 @@ from aicentral.core.errors import (
     AICentralError,
     HistoryOverflowError,
     ProviderError,
+    StructuredFailureKind,
+    StructuredNoPayloadError,
     StructuredOutputError,
+    StructuredValidationError,
 )
 
 __all__ = [
     "AICentralError",
     "HistoryOverflowError",
     "ProviderError",
+    "StructuredFailureKind",
+    "StructuredNoPayloadError",
     "StructuredOutputError",
+    "StructuredValidationError",
 ]

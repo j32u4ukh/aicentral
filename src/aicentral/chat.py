@@ -169,7 +169,10 @@ class Chat:
         context: list[Message] | None = None,
         **kwargs: Any,
     ) -> T:
-        """結構化完成一輪；有狀態時成功後將 JSON 寫入歷史。"""
+        """結構化完成一輪：只需傳入使用者文字，由函式庫處理 schema / tools / 驗證。
+
+        有狀態時成功後將 ``response_model`` 的 JSON 寫入歷史。
+        """
         user_msg: Message = {"role": "user", "content": user_input}
         request_messages = self._build_request_messages(user_msg, context=context)
         result = complete_structured(

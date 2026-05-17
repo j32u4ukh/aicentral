@@ -7,13 +7,40 @@
 
 ## 一句話
 
-v3.0 在既有 `complete()` / `Chat` 之上新增 **`complete_structured(response_model=...)`**，由消費方定義 Pydantic model，aicentral 負責 **schema 產生、呼叫模型、解析、驗證與可設定重試**；**不安裝** `instructor` 套件。
+v3.0 在既有 `complete()` / `Chat` 之上新增 **`complete_structured(response_model=...)`**，由消費方定義 Pydantic model，aicentral 負責 **schema 產生、單次呼叫、解析與驗證**；**重試次數與策略由消費方決定**（可搭配 `append_retry_hint`）；**不安裝** `instructor` 套件。
 
-> **歷史**：v0.3.0 尚未有結構化輸出；**v0.4.0** 已依本文件實作 P0/P1（`mode=json` 仍為 P2）。下方「現況 vs 規劃」保留實作前後對照。
+> **歷史**：v0.3.0 尚未有結構化輸出；**v0.4.0** 已實作 P0/P1/P2（`mode=json`）。下方「實作狀態」為對照本文件之清單。
 
 ---
 
-## 現況（v0.3.0）vs v3.0 規劃
+## 實作狀態（v0.4.0）
+
+| 項目 | 優先 | 狀態 |
+|------|------|------|
+| `structured/schema.py` | P0 | ✅ |
+| `structured/extract.py`（tool_calls） | P0 | ✅ |
+| `structured/validate.py` | P0 | ✅ |
+| `complete_structured()` | P0 | ✅ |
+| `pydantic>=2` 依賴 | P0 | ✅ |
+| `StructuredOutputError` | P0 | ✅（繼承 `AICentralError`） |
+| 單元測試（mock） | P0 | ✅ |
+| `chat_completions_raw()` | P0 | ✅（方案 B） |
+| 重試附加驗證錯誤訊息（`append_retry_hint`） | P1 | ✅ `structured/retry.py`（供消費方迴圈使用） |
+| `Chat.complete_structured()` | P1 | ✅ |
+| `structured/prompt.py` system 補強 | P1 | ✅ |
+| JSON-in-content（`mode=json`） | P2 | ✅ |
+| `AICENTRAL_STRUCTURED_MODE` | P2 | ✅ |
+| `tests/structured/test_retry.py` | — | ✅ |
+| 消費方範例專案 | — | ✅ [`aicentral-structured-demo`](../../aicentral-structured-demo) |
+| `pydantic-settings` + `config/` | P2 | ❌ 延後（env 已足夠） |
+| 結構化串流 / `Partial[T]` | — | ❌ 刻意不做（v3.1+） |
+| `acomplete_structured` | — | ❌ v3.1+ |
+
+**實作備註**：`complete_structured` 直接呼叫 `provider.chat_completions_raw()`（與 `complete()` 共用 routing/registry，不經 `complete()` 回傳 `str`）。
+
+---
+
+## 現況（v0.3.0）vs v3.0 規劃（歷史對照）
 
 ### 目前程式庫有什麼
 
@@ -27,7 +54,7 @@ v3.0 在既有 `complete()` / `Chat` 之上新增 **`complete_structured(respons
 | `__init__.py` 匯出 | `complete`、`Chat`、`parse_model`… | + `complete_structured` |
 | 主 API 回傳 | `str` 或 `Iterator[str]` | + Pydantic 實例 |
 | Provider 回傳 | 只解析 `message.content` → `str` | 需 **raw** 回應（含 `tool_calls`） |
-| 驗證 / 重試 | 無 | Pydantic validate + `max_retries` |
+| 驗證 / 重試 | 無 | Pydantic validate；重試由消費方 + `append_retry_hint` |
 | 結構化串流 | 無（亦無 API） | v3.0 **刻意不做**（見下方專節） |
 
 **一句話**：現在只有「跟模型說話拿字串」；v3.0 要在函式庫內建 **schema → tool call → extract → validate → 重試** 整條管線。
@@ -159,16 +186,15 @@ ticket = complete_structured(
 | `structured/schema.py` — `build_tool(response_model)` | P0 | 由 Pydantic v2 model 產生 OpenAI `tools[]` 單一 function schema |
 | `structured/extract.py` — 從回應取 JSON | P0 | 優先 `tool_calls`；可選 fallback 解析 `message.content` 內 JSON |
 | `structured/validate.py` — `model_validate` + 錯誤訊息 | P0 | 驗證失敗拋出可重試用的例外 |
-| `core/client.py` — `complete_structured()` | P0 | 入口：組 messages、重試迴圈、回傳實例 |
+| `core/client.py` — `complete_structured()` | P0 | 入口：組 messages、**單次** HTTP、回傳實例 |
 | 依賴 `pydantic>=2` | P0 | 必要；消費方通常已安裝 |
 | 單元測試（mock HTTP / 假 tool 回應） | P0 | 不依賴本機 Ollama |
 | `StructuredOutputError`（或細分例外） | P0 | 區分「模型沒照格式」與「Provider 連線錯誤」 |
-| 環境變數 `AICENTRAL_STRUCTURED_MAX_RETRIES` | P1 | 預設 2（即最多 3 次嘗試） |
-| 重試時附加驗證錯誤到 user 訊息 | P1 | 參考 Instructor：把 Pydantic 錯誤餵回模型修正 |
+| `append_retry_hint(messages, error)` | P1 | 消費方重試時把 Pydantic 錯誤餵回模型修正 |
 | `Chat.complete_structured()` | P1 | 有/無狀態皆可用 |
 | `from aicentral import complete_structured` | P0 | `__init__.py` 匯出 |
-| JSON-in-content fallback（無 tool_calls） | P2 | 相容較舊或不穩定的本機模型 |
-| `pydantic-settings` + `config/` | P2 | 仍可用 `.env` + `os.getenv` 滿足 v3.0 |
+| JSON-in-content fallback（無 tool_calls） | P2 | ✅ `mode="json"` 或 `AICENTRAL_STRUCTURED_MODE=json` |
+| `pydantic-settings` + `config/` | P2 | ❌ 延後；`.env` + `os.getenv` 已足夠 |
 | `acomplete_structured` 非同步 | — | v3.1+ 或與 v1.2 `acomplete` 一併 |
 | 結構化 + `stream=True` | — | **刻意不做**（範圍外，非遺漏）；見「結構化與串流」 |
 | 多 function / 多 schema 擇一 | — | v3.0 僅 **單一** `response_model` |
@@ -188,7 +214,7 @@ src/aicentral/
 │   ├── schema.py               # Pydantic → OpenAI tool definition
 │   ├── extract.py              # choices[0].message → dict
 │   ├── validate.py             # dict → BaseModel 實例
-│   └── retry.py                # 重試迴圈與錯誤訊息組裝（可併入 client）
+│   └── retry.py                # append_retry_hint（消費方重試用）
 ├── providers/                  # 不 import structured
 ├── routing/
 └── chat.py                     # P1: complete_structured 包裝
@@ -231,9 +257,18 @@ ticket = complete_structured(
     messages=[{"role": "user", "content": "伺服器當機，很急"}],
     response_model=Ticket,
     model="ollama/gemma4:e2b",  # 可省略，走 OLLAMA_MODEL + parse_model
-    max_retries=2,              # 可選；預設讀環境變數
 )
 assert isinstance(ticket, Ticket)
+
+# 驗證失敗時由消費方自行重試，例如：
+# from aicentral import append_retry_hint
+# messages = [{"role": "user", "content": "..."}]
+# for _ in range(3):
+#     try:
+#         ticket = complete_structured(messages=messages, response_model=Ticket)
+#         break
+#     except StructuredValidationError as e:
+#         messages = append_retry_hint(messages, e.validation_detail or str(e))
 ```
 
 ### `Chat`（P1）
@@ -256,7 +291,6 @@ def complete_structured[T: BaseModel](
     response_model: type[T],
     model: str | None = None,
     *,
-    max_retries: int | None = None,
     system: str | None = None,
     base_url: str | None = None,
     api_key: str | None = None,
@@ -280,17 +314,11 @@ complete_structured(messages, response_model=Ticket, model=...)
   → structured.schema.build_tool(Ticket)
        → tools=[{ "type": "function", "function": { "name", "description", "parameters" } }]
        → tool_choice 鎖定該 function（OpenAI 相容：name 或 required tool）
-  → 迴圈 attempt = 0 .. max_retries:
-       → complete(
-            messages=messages + [可選：上一輪驗證錯誤修正提示],
-            model=...,
-            tools=...,
-            tool_choice=...,
-          )
-       → structured.extract(raw_response) → dict | None
-       → structured.validate(dict, Ticket) → Ticket 實例
-       → 成功則 return
-  → 用盡重試 → raise StructuredOutputError
+  → chat_completions_raw(messages, tools=..., tool_choice=..., ...)
+  → structured.extract(raw_response) → dict | None
+  → structured.validate(dict, Ticket) → Ticket 實例
+  → 失敗拋 StructuredNoPayloadError / StructuredValidationError
+  → 消費方可迴圈並 append_retry_hint(messages, detail) 後再呼叫
 ```
 
 `complete()` 內部仍為：
@@ -324,7 +352,7 @@ P0 驗收以 **mock 的 tool_calls 路徑** 為準；本機 Ollama 實測列為�
 | `schema.build_tool(model)` | `type[BaseModel]` | `tools`, `tool_choice`, `tool_name` | 使用 `model.model_json_schema()`；function `name` 預設 snake_case 類名（如 `ticket`） |
 | `extract.from_chat_completion(data)` | provider 回傳的 `dict` 或封裝 | `dict[str, Any] \| None` | 先讀 `choices[0].message.tool_calls[0].function.arguments`（JSON 字串） |
 | `validate.parse(data, model)` | `dict`, `type[T]` | `T` | `model.model_validate(data)`；`ValidationError` 轉成可讀字串供重試 |
-| `retry.run(...)` | callable + `max_retries` | `T` | 可選獨立檔，或寫在 `core/client` |
+| `retry.append_retry_hint(...)` | `messages`, `error_summary` | `list[Message]` | 消費方重試時附加 user 修正提示 |
 
 ### Schema 產生要點
 
@@ -340,14 +368,15 @@ P0 驗收以 **mock 的 tool_calls 路徑** 為準；本機 Ollama 實測列為�
 2. （P2）`message.content` 中 JSON 區塊 / 整段 `json.loads`
 3. 皆失敗 → 本輪視為「未產出」，進入重試或最終 `StructuredOutputError`
 
-### 重試要點
+### 重試要點（消費方責任）
 
-| 情境 | 是否重試 |
-|------|----------|
-| Pydantic `ValidationError` | 是（附錯誤摘要到新 user 訊息） |
-| 無 `tool_calls` / 空 arguments | 是 |
-| `ProviderError`（HTTP 4xx/5xx、連線失敗） | **否**（直接拋出，避免掩蓋基礎設施問題） |
-| 超過 `max_retries` | 拋 `StructuredOutputError`，可帶 `last_error` / `attempts` |
+`complete_structured` **只做單次呼叫**；以下由消費方迴圈決定：
+
+| 情境 | 建議 |
+|------|------|
+| `StructuredValidationError` | 可 `append_retry_hint` 後再呼叫 |
+| `StructuredNoPayloadError` | 通常不重試或換 `mode=json` |
+| `ProviderError`（HTTP 4xx/5xx、連線失敗） | **否**（直接拋出） |
 
 重試時建議追加的 user 訊息（示意）：
 
@@ -394,13 +423,13 @@ Extract 假設的 JSON 形狀（OpenAI 相容）：
 | 例外 | 繼承 | 時機 |
 |------|------|------|
 | `ProviderError` | 既有 | HTTP / 連線 / 非預期回應格式（v2.0） |
-| `StructuredOutputError` | 建議 `ProviderError` 或獨立 `AICentralError` | 重試用盡仍無法得到合法 `response_model` |
+| `StructuredNoPayloadError` / `StructuredValidationError` | `StructuredOutputError` 子類 | 單次呼叫無 payload 或驗證失敗 |
 
-`StructuredOutputError` 建議屬性：
+`StructuredOutputError` 屬性（已實作）：
 
 - `response_model: type[BaseModel]`
-- `attempts: int`
-- `last_validation_error: str | None`
+- `kind: StructuredFailureKind`
+- `assistant_summary: str | None`（`AICENTRAL_DEV=1` 時 stderr 亦有）
 
 ---
 
@@ -409,8 +438,8 @@ Extract 假設的 JSON 形狀（OpenAI 相容）：
 | 變數 | 預設 | 說明 |
 |------|------|------|
 | `OLLAMA_MODEL` | `gemma4:e2b` | 與 v2.0 相同；`model=None` 時使用 |
-| `AICENTRAL_STRUCTURED_MAX_RETRIES` | `2` | 驗證失敗後額外重試次數 |
-| `AICENTRAL_STRUCTURED_MODE` | `tool` | （P2）`tool` \| `json` |
+| `AICENTRAL_STRUCTURED_MODE` | `tool` | `tool` \| `json` |
+| `AICENTRAL_DEV` | — | `1` 時 stderr 印結構化除錯資訊 |
 
 既有 `AICENTRAL_SYSTEM_PROMPT` 仍會經 `_with_system_prompt` 插入；結構化可在 system 加一句「輸出必須符合指定工具 schema」（實作時評估是否與繁中提示衝突）。
 
@@ -505,7 +534,7 @@ ollama pull gemma4:e2b   # 或文件指定型號
 | `client.chat.completions.create(response_model=User)` | `complete_structured(..., response_model=User)` |
 | `from_provider("openai/...")` | 已有 `parse_model` + `registry`（v2.0） |
 | `processing/response.py` | `structured/extract.py` + `validate.py` |
-| 自動 retry on validation | `structured/retry` + `max_retries` |
+| 自動 retry on validation | 消費方迴圈 + `append_retry_hint`（見 demo `extract_ticket`） |
 | 多供應商 patch | **不做**；統一走 `complete()` |
 
 ---
@@ -515,7 +544,7 @@ ollama pull gemma4:e2b   # 或文件指定型號
 1. `structured/schema.py` + `test_schema.py`  
 2. `providers/openai.py` raw 回傳（或 `return_raw`）  
 3. `structured/extract.py` + `validate.py` + 測試  
-4. `core/client.complete_structured` + 重試 + `test_complete_structured.py`  
+4. `core/client.complete_structured`（單次）+ `test_complete_structured.py`  
 5. `__init__.py` 匯出與文件  
 6. （P1）`Chat.complete_structured`  
 7. （P2）`mode=json` fallback + 本機 Ollama 手動驗收  
@@ -526,7 +555,7 @@ ollama pull gemma4:e2b   # 或文件指定型號
 
 | 問題 | 答案 |
 |------|------|
-| **現在**有結構化輸出嗎？ | **沒有**（v0.3.0）；僅 `complete()` / `Chat` 回傳文字 |
+| **現在**有結構化輸出嗎？ | **有**（v0.4.0）：`complete_structured` + `mode=tool\|json` |
 | v3.0 多出什麼？ | `complete_structured()` + `structured/*` + `pydantic` 依賴 |
 | 領域 model 放哪？ | **消費方**；aicentral 只處理任意 `BaseModel` |
 | 與 `complete()` 關係？ | 委派同一 provider 路徑，多加 tools 與驗證重試 |

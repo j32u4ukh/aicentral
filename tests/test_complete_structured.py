@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from aicentral import complete_structured
-from aicentral.core.errors import StructuredOutputError
+from aicentral.core.errors import StructuredValidationError
 
 
 class Ticket(BaseModel):
@@ -42,50 +42,34 @@ def test_complete_structured_success(mock_get_provider: MagicMock) -> None:
 
     assert isinstance(ticket, Ticket)
     assert ticket.title == "伺服器當機"
-    assert ticket.priority == 4
-    call_kwargs = provider.chat_completions_raw.call_args.kwargs
-    assert "tools" in call_kwargs
-    assert call_kwargs["tool_choice"] == {
-        "type": "function",
-        "function": {"name": "ticket"},
-    }
+    assert provider.chat_completions_raw.call_count == 1
 
 
 @patch("aicentral.core.client.get_provider_module")
-def test_complete_structured_retries_then_succeeds(mock_get_provider: MagicMock) -> None:
-    provider = MagicMock()
-    provider.chat_completions_raw.side_effect = [
-        _raw_with_args('{"title": "x", "priority": 99}'),
-        _raw_with_args('{"title": "ok", "priority": 2}'),
-    ]
-    mock_get_provider.return_value = provider
-
-    ticket = complete_structured(
-        messages=[{"role": "user", "content": "test"}],
-        response_model=Ticket,
-        max_retries=1,
-    )
-    assert ticket.priority == 2
-    assert provider.chat_completions_raw.call_count == 2
-
-
-@patch("aicentral.core.client.get_provider_module")
-def test_complete_structured_exhausted_raises(mock_get_provider: MagicMock) -> None:
+def test_complete_structured_single_call_on_validation_error(mock_get_provider: MagicMock) -> None:
     provider = MagicMock()
     provider.chat_completions_raw.return_value = _raw_with_args(
         '{"title": "x", "priority": 99}'
     )
     mock_get_provider.return_value = provider
 
-    with pytest.raises(StructuredOutputError) as exc_info:
+    with pytest.raises(StructuredValidationError) as exc_info:
         complete_structured(
             messages=[{"role": "user", "content": "test"}],
             response_model=Ticket,
-            max_retries=0,
         )
 
-    assert exc_info.value.attempts == 1
-    assert exc_info.value.response_model is Ticket
+    assert exc_info.value.failure_kind.value == "validation"
+    assert provider.chat_completions_raw.call_count == 1
+
+
+def test_complete_structured_rejects_max_retries_kwarg() -> None:
+    with pytest.raises(ValueError, match="max_retries"):
+        complete_structured(
+            messages=[{"role": "user", "content": "x"}],
+            response_model=Ticket,
+            max_retries=1,
+        )
 
 
 def test_complete_structured_rejects_stream() -> None:
@@ -97,10 +81,26 @@ def test_complete_structured_rejects_stream() -> None:
         )
 
 
-def test_complete_structured_rejects_tools_override() -> None:
-    with pytest.raises(ValueError, match="tools"):
-        complete_structured(
-            messages=[{"role": "user", "content": "x"}],
-            response_model=Ticket,
-            tools=[],
-        )
+@patch("aicentral.core.client.get_provider_module")
+def test_complete_structured_json_mode(mock_get_provider: MagicMock) -> None:
+    provider = MagicMock()
+    provider.chat_completions_raw.return_value = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": '{"title": "json-path", "priority": 3}',
+                }
+            }
+        ]
+    }
+    mock_get_provider.return_value = provider
+
+    ticket = complete_structured(
+        messages=[{"role": "user", "content": "test"}],
+        response_model=Ticket,
+        mode="json",
+    )
+    assert ticket.title == "json-path"
+    call_kwargs = provider.chat_completions_raw.call_args.kwargs
+    assert "tools" not in call_kwargs

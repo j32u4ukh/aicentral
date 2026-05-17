@@ -133,16 +133,16 @@ aicentral v0.1 **不會**自動記住上一輪對話；要連續聊天，需在 
 
 | 需求 | 說明 |
 |------|------|
-| 回傳固定 JSON / 欄位 | 用 v0.3 的 `complete_structured()`（規劃中） |
+| 回傳固定 JSON / 欄位 | 用 `complete_structured()`（v0.4+）；範例見 `aicentral-structured-demo` |
 | 串流逐字輸出 | v0.1 未支援 `stream=True` |
 | 嵌入向量、生圖 | 非 chat completion 範圍 |
 | 自動記憶多輪 session | 需在消費方自己管 `messages` 列表 |
 
 ---
 
-## 和 `complete_structured()` 的差別（預告）
+## 和 `complete_structured()` 的差別
 
-| | `complete()` | `complete_structured()`（v0.3） |
+| | `complete()` | `complete_structured()`（v0.4+） |
 |--|--------------|--------------------------------|
 | 回傳 | `str` 自由文字 | Pydantic model 實例 |
 | 用途 | 聊天、開放式問答 | 抽取、分類、固定 schema |

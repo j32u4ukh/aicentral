@@ -2,7 +2,7 @@
 aicentral 主入口：complete()、complete_structured()。
 
 v2.0：經 routing/parser 與 providers/registry 分派。
-v3.0：結構化輸出（Instructor-lite）。
+v3.0：結構化輸出（Instructor-lite）；單次呼叫，重試由消費方負責。
 """
 
 from __future__ import annotations
@@ -14,12 +14,18 @@ from typing import Any, Literal, TypeVar, overload
 from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError
 
-from aicentral.core.errors import ProviderError, StructuredOutputError
+from aicentral.core.dev import dev_print_exception, is_dev_mode
+from aicentral.core.errors import (
+    ProviderError,
+    StructuredNoPayloadError,
+    StructuredValidationError,
+)
 from aicentral.core.types import Message
 from aicentral.providers.registry import get_provider_module
 from aicentral.routing.parser import parse_model
-from aicentral.structured.extract import from_chat_completion
-from aicentral.structured.retry import append_retry_hint
+from aicentral.structured.debug import summarize_assistant_message
+from aicentral.structured.extract import ExtractMode, from_chat_completion
+from aicentral.structured.prompt import with_structured_hint
 from aicentral.structured.schema import build_tool
 from aicentral.structured.validate import format_validation_errors, parse
 
@@ -90,7 +96,9 @@ def complete(
     try:
         parsed = parse_model(model)
     except ValueError as exc:
-        raise ProviderError(str(exc)) from exc
+        err = ProviderError(str(exc))
+        dev_print_exception(err, context="complete() model 解析失敗")
+        raise err from exc
 
     resolved_messages = _with_system_prompt(messages, system)
     provider = get_provider_module(parsed.provider)
@@ -104,20 +112,30 @@ def complete(
 
     if stream:
         return provider.chat_completions_stream(**provider_kwargs)
-    return provider.chat_completions(**provider_kwargs)
+    try:
+        return provider.chat_completions(**provider_kwargs)
+    except ProviderError as exc:
+        dev_print_exception(exc, context="complete() 失敗")
+        raise
 
 
-def _structured_max_retries(max_retries: int | None) -> int:
-    if max_retries is not None:
-        return max(0, max_retries)
-    return max(0, int(os.getenv("AICENTRAL_STRUCTURED_MAX_RETRIES", "2")))
-
-
-def _guard_structured_kwargs(kwargs: dict[str, Any]) -> None:
+def _guard_structured_kwargs(kwargs: dict[str, Any], *, structured_mode: ExtractMode) -> None:
     if kwargs.pop("stream", None):
         raise ValueError("complete_structured 不支援 stream=True")
-    if "tools" in kwargs or "tool_choice" in kwargs:
+    if kwargs.pop("max_retries", None) is not None:
+        raise ValueError(
+            "complete_structured 已移除 max_retries；請在消費方自行重試，"
+            "可搭配 aicentral.structured.retry.append_retry_hint"
+        )
+    if structured_mode == "tool" and ("tools" in kwargs or "tool_choice" in kwargs):
         raise ValueError("tools 與 tool_choice 由 complete_structured 管理，請勿覆寫")
+
+
+def _resolve_structured_mode(mode: Literal["tool", "json"]) -> ExtractMode:
+    if mode == "json":
+        return "json"
+    env = os.getenv("AICENTRAL_STRUCTURED_MODE", "tool").strip().lower()
+    return "json" if env == "json" else "tool"
 
 
 def complete_structured(
@@ -125,7 +143,6 @@ def complete_structured(
     response_model: type[T],
     model: str | None = None,
     *,
-    max_retries: int | None = None,
     system: str | None = None,
     base_url: str | None = None,
     api_key: str | None = None,
@@ -133,62 +150,81 @@ def complete_structured(
     **kwargs: Any,
 ) -> T:
     """
-    送出對話並回傳通過 Pydantic 驗證的結構化實例。
+    送出對話並回傳通過 Pydantic 驗證的結構化實例（**單次** HTTP 呼叫）。
 
-    使用 OpenAI 相容 ``tools`` / ``tool_calls`` 主路徑；驗證失敗時可重試。
+    失敗時拋出 ``StructuredNoPayloadError`` 或 ``StructuredValidationError``。
+    需重試時請由消費方迴圈，並可選用 ``structured.retry.append_retry_hint`` 附加修正提示。
+
     不提供 ``stream`` 參數（v3.0 刻意不實作結構化串流）。
     """
-    if mode != "tool":
-        raise ValueError("complete_structured 目前僅支援 mode='tool'（json fallback 為 P2）")
-
+    structured_mode = _resolve_structured_mode(mode)
     extra = dict(kwargs)
-    _guard_structured_kwargs(extra)
-    retries = _structured_max_retries(max_retries)
-    total_attempts = retries + 1
+    _guard_structured_kwargs(extra, structured_mode=structured_mode)
 
     try:
         parsed = parse_model(model)
     except ValueError as exc:
         raise ProviderError(str(exc)) from exc
 
-    tool_spec = build_tool(response_model)
-    resolved_messages = _with_system_prompt(messages, system)
-    attempt_messages = list(resolved_messages)
-    last_error: str | None = None
+    tool_spec = build_tool(response_model) if structured_mode == "tool" else None
+    resolved_messages = with_structured_hint(
+        _with_system_prompt(messages, system),
+        mode=structured_mode,
+    )
 
     provider = get_provider_module(parsed.provider)
-    provider_kwargs_base = {
+    provider_kwargs_base: dict[str, Any] = {
         "base_url": base_url,
         "api_key": api_key,
         **extra,
     }
+    if structured_mode == "json":
+        provider_kwargs_base.setdefault("response_format", {"type": "json_object"})
 
-    for attempt in range(total_attempts):
-        raw = provider.chat_completions_raw(
-            messages=attempt_messages,
-            model=parsed.model_id,
-            tools=tool_spec.tools,
-            tool_choice=tool_spec.tool_choice,
-            **provider_kwargs_base,
+    call_kwargs: dict[str, Any] = {
+        "messages": resolved_messages,
+        "model": parsed.model_id,
+        **provider_kwargs_base,
+    }
+    if structured_mode == "tool" and tool_spec is not None:
+        call_kwargs["tools"] = tool_spec.tools
+        call_kwargs["tool_choice"] = tool_spec.tool_choice
+
+    try:
+        raw = provider.chat_completions_raw(**call_kwargs)
+    except ProviderError as exc:
+        dev_print_exception(exc, context="Provider 連線或 HTTP 錯誤")
+        raise
+
+    summary = summarize_assistant_message(raw)
+    payload = from_chat_completion(raw, mode=structured_mode)
+    if payload is None:
+        detail = (
+            "模型未回傳可解析的結構化內容"
+            f"（mode={structured_mode}；預期 "
+            f"{'tool_calls' if structured_mode == 'tool' else 'content 內 JSON'}）"
         )
-        payload = from_chat_completion(raw)
-        if payload is None:
-            last_error = "模型未回傳 tool_calls 或有效 function.arguments"
-            if attempt < retries:
-                attempt_messages = append_retry_hint(attempt_messages, last_error)
-            continue
+        error = StructuredNoPayloadError(
+            detail,
+            response_model=response_model,
+            assistant_summary=summary,
+            structured_mode=structured_mode,
+        )
+        if is_dev_mode():
+            dev_print_exception(error, context="結構化：無法解析模型回覆")
+        raise error
 
-        try:
-            return parse(payload, response_model)
-        except ValidationError as exc:
-            last_error = format_validation_errors(exc)
-            if attempt < retries:
-                attempt_messages = append_retry_hint(attempt_messages, last_error)
-            continue
-
-    raise StructuredOutputError(
-        f"結構化輸出失敗（已嘗試 {total_attempts} 次）: {last_error or '未知錯誤'}",
-        response_model=response_model,
-        attempts=total_attempts,
-        last_validation_error=last_error,
-    )
+    try:
+        return parse(payload, response_model)
+    except ValidationError as exc:
+        detail = format_validation_errors(exc)
+        error = StructuredValidationError(
+            f"結構化驗證失敗: {detail}",
+            response_model=response_model,
+            validation_detail=detail,
+            assistant_summary=summary,
+            structured_mode=structured_mode,
+        )
+        if is_dev_mode():
+            dev_print_exception(error, context="結構化：驗證失敗")
+        raise error
