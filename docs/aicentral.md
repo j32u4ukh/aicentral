@@ -127,7 +127,7 @@ tests/                   # core、providers、routing、structured、mcp、gatew
 | 版本 | 目標 | 主要產出 | 驗收 |
 |------|------|----------|------|
 | **0.6.0** | Library 工具編排 | `core` 辨識 OpenAI 風格 `tools` 中的 MCP 宣告；委派 `MCPManager` 執行 `call_tool`；`Chat` 可選開啟 tool loop | `complete(..., mcp_servers=[...])` 跑通一輪 list → call → 再 complete · 規格：[aicentral-v0.6.0.md](./aicentral-v0.6.0.md) |
-| **0.6.1**（可選） | Proxy 暴露 MCP | `gateway` 轉發 `list_tools` / `call_tool`；仍僅 loopback | curl 或 `aicentral-chat` 經 HTTP 觸發 MCP · 規格：[aicentral-v0.6.1.md](./aicentral-v0.6.1.md) |
+| **0.6.1**（可選） | Proxy 暴露 MCP | `gateway`：MCP server 列表 CRUD（執行期註冊）+ `list_tools` / `call_tool`；仍僅 loopback | curl 管理 server 列表並呼叫工具 · 規格：[aicentral-v0.6.1.md](./aicentral-v0.6.1.md) |
 
 **0.5.0 已足夠的認證**：`auth_type: none` / `bearer_token` / `basic` + `secret.yaml` 靜態 token，無需另做 OAuth 模組即可接多數遠端 MCP。
 
@@ -167,11 +167,21 @@ complete(messages, tools=[...])
 
 > 完整 HTTP 契約、curl／`chat_mcp_http.py` 範例見 **[aicentral-v0.6.1.md](./aicentral-v0.6.1.md)**。
 
-對照 LiteLLM Proxy 的 MCP 掛載，在**本機** Gateway 增加最小 REST（路徑草案，實作時以程式為準）：
+對照 LiteLLM Proxy 的 MCP 掛載，在**本機** Gateway 增加 REST（路徑草案，實作時以程式為準）：
+
+**Server 列表**（對應 `register_mcp_server` / `unregister_mcp_server`）：
 
 | 方法 | 路徑（草案） | 行為 |
 |------|--------------|------|
-| `GET` | `/v1/mcp/servers` | 回傳 yaml 中已啟用 server 名稱 |
+| `GET` | `/v1/mcp/servers` | 合併列出 yaml + 執行期 server |
+| `POST` | `/v1/mcp/servers` | 執行期註冊（單一或批次） |
+| `PUT` | `/v1/mcp/servers/{server}` | 覆寫執行期註冊 |
+| `DELETE` | `/v1/mcp/servers/{server}` | 移除執行期註冊 |
+
+**工具**：
+
+| 方法 | 路徑（草案） | 行為 |
+|------|--------------|------|
 | `GET` | `/v1/mcp/{server}/tools` | 轉發 `list_tools` |
 | `POST` | `/v1/mcp/{server}/tools/{tool}` | 轉發 `call_tool` |
 
