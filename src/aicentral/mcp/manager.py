@@ -7,8 +7,8 @@ MCP 與 Cursor SKILL 的分工
   要傳哪些參數——**不必**在 aicentral 另寫類似 SKILL.md 的「用法說明檔」。
 - **本模組**：只負責讀 yaml 連線設定、白名單、工具名稱前綴，並代為連線
   ``list_tools`` / ``call_tool``；**不**定義各工具的語意（語意由 MCP server 提供）。
-- **仍須設定**：``config/aicentral.yaml`` 的 ``mcp_servers``（URL、transport、認證等）
-  告訴程式「連哪個 server」，這與工具自我說明是兩件事。
+- **連線設定**：預設來自 ``config/aicentral.yaml`` 的 ``mcp_servers``；外部專案亦可
+  ``register_mcp_server()`` 執行期註冊（見 ``mcp/registry.py``），與 yaml 合併使用。
 - **尚未自動**：0.5.0 不會在 ``complete()`` 內自動跑「模型 ↔ 工具」迴圈；應用層需
   自行 ``list_tools`` → 把結果塞進 ``tools`` → 模型選工具 → ``call_tool``（見 0.6 規劃）。
 """
@@ -21,6 +21,7 @@ from typing import Any
 from aicentral.config import get_config, load_config
 from aicentral.config.schema import AICentralConfig, MCPServerEntry
 from aicentral.mcp.client import acall_tool, alist_tools
+from aicentral.mcp.registry import merge_mcp_servers
 
 # 設定或 OpenAI tools 內可用的內部別名，對應 yaml 的 server 名稱
 AICENTRAL_MCP_PREFIX = "aicentral/mcp/"
@@ -37,23 +38,39 @@ class MCPManager:
     經 ``list_tools`` / ``list_all_tools`` 原樣（加上可選名稱前綴）交給呼叫方或 LLM。
     """
 
-    def __init__(self, config: AICentralConfig) -> None:
+    def __init__(
+        self,
+        config: AICentralConfig,
+        *,
+        extra_servers: Mapping[str, MCPServerEntry] | None = None,
+    ) -> None:
         self._config = config
+        self._extra_servers = dict(extra_servers) if extra_servers else {}
 
     @classmethod
-    def from_config(cls, *, path: str | None = None) -> MCPManager:
-        """從 yaml 建立實例；``path`` 為 None 時使用已載入的 ``get_config()``。"""
+    def from_config(
+        cls,
+        *,
+        path: str | None = None,
+        extra_servers: Mapping[str, MCPServerEntry] | None = None,
+    ) -> MCPManager:
+        """從 yaml + 執行期註冊表建立實例；``path`` 為 None 時使用 ``get_config()``。"""
         cfg = load_config(path=path) if path else get_config()
-        return cls(cfg)
+        return cls(cfg, extra_servers=extra_servers)
+
+    def _mcp_servers(self) -> dict[str, MCPServerEntry]:
+        """yaml ``mcp_servers``、``register_mcp_server`` 與建構時 ``extra_servers`` 合併。"""
+        return merge_mcp_servers(self._config, extra=self._extra_servers)
 
     def _get_entry(self, server_name: str) -> MCPServerEntry:
         """解析 server 名稱並套用 ``mcp_settings.allowed_servers`` 全域白名單。"""
         allowed = self._config.mcp_settings.allowed_servers
         if allowed is not None and server_name not in allowed:
             raise MCPError(f"MCP server 不在白名單: {server_name!r}")
-        entry = self._config.mcp_servers.get(server_name)
+        servers = self._mcp_servers()
+        entry = servers.get(server_name)
         if entry is None:
-            known = ", ".join(sorted(self._config.mcp_servers))
+            known = ", ".join(sorted(servers))
             raise MCPError(f"未知 MCP server: {server_name!r}（已定義: {known or '無'}）")
         return entry
 
@@ -112,7 +129,7 @@ class MCPManager:
     def list_all_tools(self) -> list[dict[str, Any]]:
         """彙總所有已設定（且通過全域白名單）server 的工具。"""
         out: list[dict[str, Any]] = []
-        for name in self._config.mcp_servers:
+        for name in self._mcp_servers():
             if self._config.mcp_settings.allowed_servers is None or name in (
                 self._config.mcp_settings.allowed_servers
             ):

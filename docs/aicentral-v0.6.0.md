@@ -173,7 +173,16 @@ r1 = complete(messages, tools=openai_tools, ...)  # 需 provider 回傳 tool_cal
 
 ## 設定範例
 
-`config/aicentral.yaml`（沿用 0.5.0）：
+**YAML**（沿用 0.5.0）或 **執行期註冊**（0.5.0+ 已支援，見 [mcp.md](./mcp.md)）：
+
+```python
+from aicentral import register_mcp_server, MCPManager
+
+register_mcp_server("deepwiki", transport="http", url="https://mcp.deepwiki.com/mcp")
+mgr = MCPManager.from_config()
+```
+
+`config/aicentral.yaml`：
 
 ```yaml
 mcp_servers:

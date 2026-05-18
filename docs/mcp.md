@@ -20,6 +20,8 @@ LiteLLM 亦將 MCP 放在 **Proxy / Responses** 層，而非 `llms/` 目錄。ai
 
 ## 設定方式
 
+### YAML（預設）
+
 在 `config/aicentral.yaml`（或 `AICENTRAL_CONFIG` 指向的檔案）定義 `mcp_servers`：
 
 ```yaml
@@ -49,6 +51,45 @@ mcp_settings:
   client_timeout: 30
   # allowed_servers: [deepwiki]   # 可選白名單
 ```
+
+### 執行期註冊（外部專案）
+
+不需修改 aicentral repo 的 yaml 時，可在應用啟動時註冊：
+
+```python
+from aicentral import MCPManager, register_mcp_server, register_mcp_servers, MCPServerEntry
+
+# 單一 server（關鍵字參數同 MCPServerEntry 欄位）
+register_mcp_server(
+    "my_tools",
+    transport="http",
+    url="https://tools.example.com/mcp",
+    auth_type="bearer_token",
+    auth_value="your-token",
+)
+
+# 或批次
+register_mcp_servers({
+    "fetch": {
+        "transport": "stdio",
+        "command": "uvx",
+        "args": ["mcp-server-fetch"],
+    },
+})
+
+mgr = MCPManager.from_config()  # yaml + 註冊表合併
+tools = mgr.list_tools("my_tools")
+```
+
+| 函式 | 說明 |
+|------|------|
+| `register_mcp_server(name, ...)` | 註冊一個 server；同名會覆寫 yaml |
+| `register_mcp_servers(dict)` | 批次註冊 |
+| `unregister_mcp_server(name)` | 移除執行期註冊 |
+| `registered_mcp_servers()` | 查看目前註冊表 |
+| `MCPManager(cfg, extra_servers={...})` | 僅該實例額外 server，不寫入全域註冊表 |
+
+合併順序：**yaml** → **全域註冊** → **`extra_servers`**（後者優先）。
 
 ### 欄位說明
 

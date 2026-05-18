@@ -43,7 +43,7 @@ aicentral-chat / 你的後端
 | 路由 | `routing/parser`、`routing/router` | `provider/model`、yaml `model_list`、fallback |
 | 設定 | `config/loader`、`config/schema` | `config/aicentral.yaml` + `config/secret.yaml` |
 | 供應商 | `providers/*` | Ollama（OpenAI 相容）、OpenAI、Anthropic、Gemini |
-| MCP（基礎） | `mcp/client`、`mcp/manager` | stdio / http / sse；`list_tools` / `call_tool` |
+| MCP（基礎） | `mcp/client`、`mcp/manager`、`mcp/registry` | yaml 或 `register_mcp_server()`；`list_tools` / `call_tool` |
 | Proxy | `gateway/*` | 本機 loopback、`POST /v1/chat/completions`、SSE |
 
 驗收（開發機）：
@@ -100,6 +100,7 @@ tests/                   # core、providers、routing、structured、mcp、gatew
 |------|------|
 | `config/aicentral.yaml` | 主設定：`defaults`、`model_list`、`router`、`mcp_servers`、`gateway` |
 | `config/secret.yaml` | 巢狀機密；`secret/ollama.api_key` 等形式由 loader 展開 |
+| `register_mcp_server()` | 執行期註冊 MCP server，與 yaml 合併（見 [mcp.md](./mcp.md)） |
 
 [`aicentral-chat`](../../aicentral-chat) 為獨立示範專案：`chat.py`（直接 `Chat`）、`chat_http.py`（本機 Proxy）。**禁止**在消費方直接 `httpx` 打 Ollama 或繞過 aicentral 的路由／設定。
 

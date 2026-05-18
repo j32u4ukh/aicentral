@@ -13,7 +13,14 @@ from aicentral.core.errors import (
     StructuredValidationError,
 )
 from aicentral.core.types import ChatResponse, Message, Role
-from aicentral.mcp import MCPManager
+from aicentral.mcp import (
+    MCPManager,
+    MCPServerEntry,
+    register_mcp_server,
+    register_mcp_servers,
+    registered_mcp_servers,
+    unregister_mcp_server,
+)
 from aicentral.routing.parser import ParsedModel, parse_model
 from aicentral.routing.router import ResolvedCall, effective_model, resolve_call
 from aicentral.structured.retry import append_retry_hint
@@ -36,6 +43,11 @@ __all__ = [
     "resolve_call",
     "effective_model",
     "MCPManager",
+    "MCPServerEntry",
+    "register_mcp_server",
+    "register_mcp_servers",
+    "registered_mcp_servers",
+    "unregister_mcp_server",
     "append_retry_hint",
     "AICentralError",
     "HistoryOverflowError",
