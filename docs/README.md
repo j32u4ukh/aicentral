@@ -13,6 +13,8 @@
 | **要接 OpenAI / Claude / Gemini** | [routing.md](./routing.md) + [aicentral-v4.0.md](./aicentral-v4.0.md) |
 | **結構化輸出（Pydantic）** | [concepts.md](./concepts.md) → [aicentral-v3.0.md](./aicentral-v3.0.md) |
 | **MCP 工具** | [mcp.md](./mcp.md) |
+| **MCP 工具編排（0.6.0）** | [aicentral-v0.6.0.md](./aicentral-v0.6.0.md) |
+| **Proxy MCP HTTP（0.6.1 可選）** | [aicentral-v0.6.1.md](./aicentral-v0.6.1.md) |
 | **本機 HTTP Proxy / Gateway（v5.0）** | [proxy.md](./proxy.md)（使用說明）· [aicentral-v5.0 .md](./aicentral-v5.0%20.md)（規格） |
 | **未來對外開 HTTP API** | [security.md](./security.md) |
 | **想了解設計從哪來** | [litellm.md](./litellm.md)、[instructor.md](./instructor.md) |
@@ -21,12 +23,12 @@
 
 ## 核心文件
 
-### [aicentral.md](./aicentral.md) — 專案架構與版本路線圖
+### [aicentral.md](./aicentral.md) — 專案架構與路線圖
 
 - 專案定位（library vs 消費方應用）
-- v1.0～v5.0 各版目標與產出對照
-- 目錄結構、依賴方向、`complete()` 在整體中的角色
-- **適合**：掌握全貌、查「這版該做什麼」
+- **0.5.0** 已交付能力、**0.6.x** MCP MVP 規劃
+- 刻意不做清單（OAuth、semantic filter 等保持輕量）
+- **適合**：掌握全貌、查下一步該做什麼
 
 ### [concepts.md](./concepts.md) — 核心概念（白話）
 
