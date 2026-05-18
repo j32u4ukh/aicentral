@@ -1,6 +1,6 @@
-# MCP Server（aicentral v4.0）
+# MCP（Client 連線外部 Server）
 
-> 規格：[aicentral-v4.0.md](./aicentral-v4.0.md) · 參考 LiteLLM：`litellm/responses/mcp/`、`litellm/proxy/_experimental/mcp_server/`
+> 架構：[aicentral.md](./aicentral.md) · 規格：[aicentral-v4.0.md](./aicentral-v4.0.md) · 參考 LiteLLM：`litellm/responses/mcp/`
 
 ---
 
@@ -12,7 +12,7 @@
 |------|------|
 | `providers/*` | 呼叫 **LLM**（OpenAI、Anthropic、Gemini、Ollama） |
 | `mcp/*` | 連線 **MCP server**、列出與執行工具 |
-| `core/client.complete()` | 組裝對話；未來可選編排「模型 ↔ MCP 工具」迴圈 |
+| `core/client.complete()` | 組裝對話；**0.6.0** 規劃可選編排「模型 ↔ MCP 工具」迴圈 |
 
 LiteLLM 亦將 MCP 放在 **Proxy / Responses** 層，而非 `llms/` 目錄。aicentral 對齊此設計。
 
@@ -113,7 +113,7 @@ from aicentral.mcp import MCPManager
 name = MCPManager.parse_server_url("aicentral/mcp/deepwiki")  # -> "deepwiki"
 ```
 
-v4.0 **library** 不自動在 `complete()` 內執行 MCP tool loop；請在應用層呼叫 `MCPManager`，或待 v4.1 / v5.0 Gateway 整合。
+**0.5.0** 不自動在 `complete()` 內執行 MCP tool loop；請在應用層呼叫 `MCPManager`，或待 **0.6.0** 編排／**0.6.1**（可選）Gateway HTTP。
 
 ---
 
@@ -129,11 +129,11 @@ v4.0 **library** 不自動在 `complete()` 內執行 MCP tool loop；請在應�
 
 ---
 
-## 與 `complete()` 的關係（規劃）
+## 與 `complete()` 的關係
 
-LiteLLM 在 `tools` 參數中接受 `type: "mcp"`，由 `LiteLLM_Proxy_MCP_Handler` 代為 list/call。
+LiteLLM 在 `tools` 參數中接受 `type: "mcp"`，由 Proxy 代為 list/call。
 
-aicentral v4.0 已提供 **獨立** `MCPManager`；`complete(..., tools=[...])` 的自動編排列為 **P1 之後**，避免 library 強制綁定特定 agent 迴圈。
+aicentral **0.5.0** 已提供 **獨立** `MCPManager`；`complete(..., mcp_servers=[...])` 的自動編排規格見 **[aicentral-v0.6.0.md](./aicentral-v0.6.0.md)**；Proxy HTTP 見 **[aicentral-v0.6.1.md](./aicentral-v0.6.1.md)**。
 
 建議消費方流程：
 
@@ -154,12 +154,23 @@ MCP 失敗 **不會** 觸發 LLM router 的 `fallback`（fallback 僅用於 `Pro
 
 ---
 
-## v4.0 刻意不做
+## 認證（0.5.0 已支援）
 
-- MCP OAuth2 / PKCE 全流程（LiteLLM Proxy）
-- `mcp_semantic_tool_filter`（依 embedding 篩工具）
-- 內建 `mcp_registry.json` 市集一鍵安裝
-- HTTP Gateway 對外暴露 `/mcp/*`（見 v5.0）
+| `auth_type` | 用途 |
+|-------------|------|
+| `none` | 無需 token（如 DeepWiki） |
+| `bearer_token` / `api_key` / `basic` | 靜態金鑰，可寫 `secret/mcp.<server>.auth_value` |
+
+不需 OAuth 模組即可接多數 MCP；OAuth2 / PKCE 全流程**不在計畫內**（見下方）。
+
+## 不在範圍內（保持輕量，非延後）
+
+以下能力**不預排版本**；需求明確時再議是否加入 aicentral 或由消費方實作：
+
+- MCP OAuth2 / PKCE 全流程
+- `mcp_semantic_tool_filter`、內建 registry 市集一鍵匯入
+- MCP 專用 metrics／可觀測平台
+- Gateway 對外網開放 `/mcp/*`（本機 Proxy 僅 loopback；**0.6.1** 可選本機轉發）
 
 ---
 
