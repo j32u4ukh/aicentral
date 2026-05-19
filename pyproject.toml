@@ -1,6 +1,6 @@
 [project]
 name = "aicentral"
-version = "0.5.0"
+version = "0.6.0"
 description = "Lightweight Python library: unified LLM routing and structured outputs for other projects"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"

@@ -63,11 +63,14 @@ async def mcp_session(entry: MCPServerEntry, *, timeout: float):
         client = getattr(streamable_http_module, "streamable_http_client", None)
         if client is None:
             raise ImportError("mcp 版本不支援 streamable_http_client")
-        headers = _auth_headers(entry)
-        async with client(entry.url, headers=headers) as (read, write, _):
-            async with ClientSession(read, write) as session:
-                await asyncio.wait_for(session.initialize(), timeout=timeout)
-                yield session
+        from mcp.shared._httpx_utils import create_mcp_http_client
+
+        headers = _auth_headers(entry) or None
+        async with create_mcp_http_client(headers) as http_client:
+            async with client(entry.url, http_client=http_client) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await asyncio.wait_for(session.initialize(), timeout=timeout)
+                    yield session
     else:
         raise ValueError(f"不支援的 MCP transport: {transport}")
 

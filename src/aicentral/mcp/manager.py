@@ -1,16 +1,7 @@
-"""MCP server 管理（對照 LiteLLM proxy mcp_servers）。
+"""MCP server 管理：連線設定、``list_tools`` / ``call_tool``。
 
-MCP 與 Cursor SKILL 的分工
---------------------------
-- **MCP 工具**：各 MCP server 透過協定 ``list_tools`` 回傳 ``name``、``description``、
-  ``inputSchema``（JSON Schema）。模型在收到 tools 清單後，依這些欄位決定何時呼叫、
-  要傳哪些參數——**不必**在 aicentral 另寫類似 SKILL.md 的「用法說明檔」。
-- **本模組**：只負責讀 yaml 連線設定、白名單、工具名稱前綴，並代為連線
-  ``list_tools`` / ``call_tool``；**不**定義各工具的語意（語意由 MCP server 提供）。
-- **連線設定**：預設來自 ``config/aicentral.yaml`` 的 ``mcp_servers``；外部專案亦可
-  ``register_mcp_server()`` 執行期註冊（見 ``mcp/registry.py``），與 yaml 合併使用。
-- **尚未自動**：0.5.0 不會在 ``complete()`` 內自動跑「模型 ↔ 工具」迴圈；應用層需
-  自行 ``list_tools`` → 把結果塞進 ``tools`` → 模型選工具 → ``call_tool``（見 0.6 規劃）。
+讀取 yaml ``mcp_servers`` 與執行期註冊表（``registry``），代為連線各 MCP Server。
+自動 tool loop 見 ``orchestrator``；套件總覽見 ``mcp/__init__.py``。
 """
 
 from __future__ import annotations

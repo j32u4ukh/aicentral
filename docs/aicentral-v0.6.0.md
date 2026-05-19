@@ -3,7 +3,7 @@
 > 總覽：[aicentral.md](./aicentral.md) · MCP 使用：[mcp.md](./mcp.md) · 前置：**0.5.0**（`MCPManager`、`mcp_servers` yaml）  
 > 下一階段（可選）：[aicentral-v0.6.1.md](./aicentral-v0.6.1.md)（Proxy HTTP）
 
-**套件版本**：`0.6.0`（實作完成後更新 `pyproject.toml`）
+**套件版本**：`0.6.0`（已交付，見 `pyproject.toml`）
 
 ---
 
@@ -122,52 +122,30 @@ reply = chat.complete("幫我搜尋 MCP 協定是什麼")
 
 ---
 
-## 消費方範例規劃（aicentral-chat）
+## 消費方範例
 
-**新檔** `aicentral-chat/chat_mcp.py`（示範，非 aicentral 本體）：
+### [`aicentral-mcp`](../../aicentral-mcp)（MCP 專用，建議從此開始）
 
-```python
-#!/usr/bin/env python3
-"""終端對話：complete + MCP tool loop（v0.6.0）。"""
+| 腳本 | 範例函式 | 說明 |
+|------|----------|------|
+| `example_01_manager_manual.py` | `list_server_tools()`、`call_tool_demo()` | 手動 `MCPManager` + `mcp_tool_to_openai` |
+| `example_02_complete_mcp.py` | `run_complete_with_mcp()` | 一行 `complete(..., mcp_servers=...)` |
+| `example_03_chat_mcp.py` | `run_chat_repl()` | `Chat(mcp_servers=...)` 互動 REPL |
+| `example_04_register_server.py` | `register_demo_server()`、`list_registered()` | 執行期 `register_mcp_server` |
 
-from aicentral import Chat
-
-from chat_common import require_aicentral_config, resolved_model, run_chat_loop
-
-
-def main() -> None:
-    require_aicentral_config()
-    model = resolved_model()
-    chat = Chat(model=model, mcp_servers=["deepwiki"], max_tool_rounds=5)
-    run_chat_loop(
-        model=model,
-        via="import Chat + MCP",
-        stream_fn=lambda user_input: _sync_stream(chat, user_input),
-    )
-
-
-def _sync_stream(chat: Chat, user_input: str):
-    # v0.6.0 若僅支援非串流 MCP loop，直接回傳 str 的迭代器包裝
-    text = chat.complete(user_input)
-    yield text
-
-
-if __name__ == "__main__":
-    main()
+```powershell
+cd ..\aicentral-mcp
+pip install -e .
+python example_02_complete_mcp.py
 ```
 
-**手動三步（0.5.0 仍可用；0.6.0 後可簡化為一行 `complete`）**：
+### [`aicentral-chat/chat_mcp.py`](../../aicentral-chat/chat_mcp.py)
 
-```python
-from aicentral import MCPManager, complete
+沿用 `chat_common` 的終端 REPL，內部使用 `Chat(mcp_servers=["deepwiki"])`（非串流 MCP loop）。
 
-mgr = MCPManager.from_config()
-openai_tools = mgr_to_openai(mgr.list_tools("deepwiki"))  # 0.6.0 內建轉換
+### 手動編排（進階）
 
-messages = [{"role": "user", "content": "搜尋 aicentral"}]
-r1 = complete(messages, tools=openai_tools, ...)  # 需 provider 回傳 tool_calls
-# ... 應用層 call_tool、塞 role:tool、再 complete → 0.6.0 自動化此段
-```
+仍可直接 `MCPManager` + 自行組 `messages`；0.6.0 的 `complete(mcp_servers=...)` 已內建 list → tool_call → call → 再 complete 迴圈。
 
 ---
 
@@ -203,12 +181,13 @@ mcp_settings:
 
 ## 驗收標準
 
-- [ ] `pip install -e ".[dev,mcp]"` + `pytest` 全過（含新測試）
-- [ ] `complete(..., mcp_servers=["deepwiki"])` 在 mock 或整合環境完成 **一輪** list → tool_call → call → 最終文字
-- [ ] `MCPError` 時不觸發 router fallback
-- [ ] 未傳 `mcp_servers` 時行為與 **0.5.0** 一致
-- [ ] [mcp.md](./mcp.md) 已更新「與 complete 的關係」為已實作
-- [ ] （可選）`aicentral-chat/chat_mcp.py` 可手動跑通一輪對話
+- [x] `pip install -e ".[dev,mcp]"` + `pytest` 全過（含新測試）
+- [x] `complete(..., mcp_servers=["demo"])` 在 mock 環境完成 **一輪** list → tool_call → call → 最終文字
+- [x] `MCPError` 時不觸發 router fallback
+- [x] 未傳 `mcp_servers` 時行為與 **0.5.0** 一致
+- [x] [mcp.md](./mcp.md) 已更新「與 complete 的關係」為已實作
+- [x] [`aicentral-mcp`](../../aicentral-mcp) 四支範例腳本（含可 import 函式）
+- [x] `aicentral-chat/chat_mcp.py` 簡化 REPL（需本機 MCP server 與支援 tools 的模型方可整合測試）
 
 ---
 

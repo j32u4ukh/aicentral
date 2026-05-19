@@ -59,6 +59,9 @@ class Chat:
         history_policy: HistoryPolicy = HistoryPolicy.DROP_OLDEST_PAIR,
         base_url: str | None = None,
         api_key: str | None = None,
+        mcp_servers: list[str] | str | None = None,
+        max_tool_rounds: int = 5,
+        include_tool_messages_in_history: bool = False,
     ) -> None:
         self._mode = mode
         self._system = system
@@ -67,6 +70,9 @@ class Chat:
         self._history_policy = history_policy
         self._base_url = base_url
         self._api_key = api_key
+        self._mcp_servers = mcp_servers
+        self._max_tool_rounds = max_tool_rounds
+        self._include_tool_messages_in_history = include_tool_messages_in_history
         # 有狀態模式下的對話歷史；串流與非串流皆在 _record_turn 寫入此列表
         self._history: list[Message] = []
 
@@ -123,6 +129,10 @@ class Chat:
     ) -> str | Iterator[str]:
         user_msg: Message = {"role": "user", "content": user_input}
         request_messages = self._build_request_messages(user_msg, context=context)
+        mcp_kw = self._mcp_complete_kwargs()
+
+        if self._mcp_servers is not None and stream:
+            raise ValueError("Chat.complete(stream=True) 不支援 mcp_servers；請使用 stream=False")
 
         if self._mode == ChatMode.STATELESS:
             # 無狀態：不寫入 _history；串流直接轉發底層迭代器
@@ -134,6 +144,7 @@ class Chat:
                     base_url=self._base_url,
                     api_key=self._api_key,
                     stream=True,
+                    **mcp_kw,
                     **kwargs,
                 )
             return complete(
@@ -142,6 +153,7 @@ class Chat:
                 system=self._system,
                 base_url=self._base_url,
                 api_key=self._api_key,
+                **mcp_kw,
                 **kwargs,
             )
 
@@ -156,6 +168,7 @@ class Chat:
             system=self._system,
             base_url=self._base_url,
             api_key=self._api_key,
+            **mcp_kw,
             **kwargs,
         )
         self._record_turn(user_msg, reply)
@@ -187,6 +200,14 @@ class Chat:
         if self._mode == ChatMode.STATEFUL:
             self._record_turn(user_msg, result.model_dump_json())
         return result
+
+    def _mcp_complete_kwargs(self) -> dict[str, Any]:
+        if self._mcp_servers is None:
+            return {}
+        return {
+            "mcp_servers": self._mcp_servers,
+            "max_tool_rounds": self._max_tool_rounds,
+        }
 
     def _build_request_messages(
         self,

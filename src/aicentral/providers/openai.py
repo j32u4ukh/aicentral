@@ -23,8 +23,11 @@ def to_openai_messages(messages: list[Message]) -> list[dict[str, Any]]:
     """將 aicentral Message 轉為 OpenAI chat/completions 的 messages 陣列。"""
     out: list[dict[str, Any]] = []
     for m in messages:
-        content = m["content"]
-        out.append({"role": m["role"], "content": content})
+        msg = dict(m)
+        role = msg.get("role", "user")
+        if role == "tool" and "content" not in msg:
+            msg["content"] = ""
+        out.append(msg)
     return out
 
 

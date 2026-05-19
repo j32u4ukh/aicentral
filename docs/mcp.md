@@ -12,7 +12,7 @@
 |------|------|
 | `providers/*` | 呼叫 **LLM**（OpenAI、Anthropic、Gemini、Ollama） |
 | `mcp/*` | 連線 **MCP server**、列出與執行工具 |
-| `core/client.complete()` | 組裝對話；**0.6.0** 規劃可選編排「模型 ↔ MCP 工具」迴圈 |
+| `core/client.complete()` | 組裝對話；**0.6.0** 起可選 `mcp_servers` 自動編排 tool loop |
 
 LiteLLM 亦將 MCP 放在 **Proxy / Responses** 層，而非 `llms/` 目錄。aicentral 對齊此設計。
 
@@ -154,7 +154,28 @@ from aicentral.mcp import MCPManager
 name = MCPManager.parse_server_url("aicentral/mcp/deepwiki")  # -> "deepwiki"
 ```
 
-**0.5.0** 不自動在 `complete()` 內執行 MCP tool loop；請在應用層呼叫 `MCPManager`，或待 **0.6.0** 編排／**0.6.1**（可選）Gateway HTTP。
+未傳 `mcp_servers` 時，`complete()` 行為與純 LLM 相同；可改用手動 `MCPManager` 或 **`complete(..., mcp_servers=[...])`**。Proxy HTTP 見 **0.6.1**（可選）。
+
+---
+
+## 消費方範例（aicentral-mcp）
+
+獨立示範專案 [`aicentral-mcp`](../../aicentral-mcp) 提供可 import 的範例函式與腳本：
+
+| 腳本 | 對應 API |
+|------|----------|
+| `example_01_manager_manual.py` | `MCPManager.list_tools` / `call_tool`、`mcp_tool_to_openai` |
+| `example_02_complete_mcp.py` | `complete(..., mcp_servers=...)` |
+| `example_03_chat_mcp.py` | `Chat(mcp_servers=...)` |
+| `example_04_register_server.py` | `register_mcp_server` + 合併設定 |
+
+```powershell
+cd aicentral-mcp
+pip install -e .
+python example_02_complete_mcp.py
+```
+
+對話 + MCP 的簡化 REPL 亦可見 [`aicentral-chat/chat_mcp.py`](../../aicentral-chat/chat_mcp.py)。
 
 ---
 
@@ -174,13 +195,19 @@ name = MCPManager.parse_server_url("aicentral/mcp/deepwiki")  # -> "deepwiki"
 
 LiteLLM 在 `tools` 參數中接受 `type: "mcp"`，由 Proxy 代為 list/call。
 
-aicentral **0.5.0** 已提供 **獨立** `MCPManager`；`complete(..., mcp_servers=[...])` 的自動編排規格見 **[aicentral-v0.6.0.md](./aicentral-v0.6.0.md)**；Proxy HTTP 見 **[aicentral-v0.6.1.md](./aicentral-v0.6.1.md)**。
+**0.6.0** 起 `complete(..., mcp_servers=[...])` 與 `Chat(mcp_servers=...)` 會自動執行 tool loop（**非串流**）：
 
-建議消費方流程：
+```python
+from aicentral import complete
 
-1. `tools = mgr.list_tools("my_server")` 轉成模型可用的 function schema（應用層負責）。
-2. `complete(messages, tools=functions)` 取得 `tool_calls`。
-3. `mgr.call_tool(...)` 執行後，將結果以 `role: tool` 訊息塞回 `messages`，再 `complete`。
+reply = complete(
+    [{"role": "user", "content": "用 DeepWiki 查 aicentral"}],
+    mcp_servers=["deepwiki"],
+    max_tool_rounds=5,
+)
+```
+
+仍可直接使用 `MCPManager` 手動編排；Proxy HTTP 見 **[aicentral-v0.6.1.md](./aicentral-v0.6.1.md)**（規劃中）。
 
 ---
 
