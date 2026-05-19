@@ -84,6 +84,22 @@ class Chat:
     def stateless(cls, **kwargs: Any) -> Chat:
         return cls(mode=ChatMode.STATELESS, **kwargs)
 
+    @classmethod
+    def with_mcp(
+        cls,
+        mcp_servers: list[str] | str,
+        /,
+        *,
+        max_tool_rounds: int = 5,
+        **kwargs: Any,
+    ) -> Chat:
+        """建立已啟用 MCP tool loop 的 Chat；呼叫 ``ask()`` 或 ``complete()`` 即可，無需自行組 messages。"""
+        return cls(
+            mcp_servers=mcp_servers,
+            max_tool_rounds=max_tool_rounds,
+            **kwargs,
+        )
+
     @property
     def mode(self) -> ChatMode:
         return self._mode
@@ -118,6 +134,10 @@ class Chat:
         context: list[Message] | None = None,
         **kwargs: Any,
     ) -> Iterator[str]: ...
+
+    def ask(self, user_input: str, **kwargs: Any) -> str:
+        """提問並回覆文字（等同 ``complete(..., stream=False)``）；MCP 時由函式庫處理 tool loop。"""
+        return self.complete(user_input, stream=False, **kwargs)
 
     def complete(
         self,

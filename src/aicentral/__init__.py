@@ -12,10 +12,11 @@ from aicentral.core.errors import (
     StructuredOutputError,
     StructuredValidationError,
 )
-from aicentral.core.types import ChatResponse, Message, Role
+from aicentral.core.types import ChatResponse, Message, Role, as_messages, user_message
 from aicentral.mcp import (
     MCPManager,
     MCPServerEntry,
+    ask_mcp,
     register_mcp_server,
     register_mcp_servers,
     registered_mcp_servers,
@@ -34,6 +35,9 @@ __all__ = [
     "Message",
     "ParsedModel",
     "Role",
+    "as_messages",
+    "user_message",
+    "ask_mcp",
     "complete",
     "complete_structured",
     "parse_model",

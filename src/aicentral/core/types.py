@@ -25,3 +25,15 @@ class ChatResponse(TypedDict, total=False):
 
     content: str
     model: str
+
+
+def user_message(content: str) -> Message:
+    """將使用者問題轉成單則 ``user`` 訊息（供 ``complete`` / ``Chat`` 使用）。"""
+    return {"role": "user", "content": content}
+
+
+def as_messages(messages: str | list[Message]) -> list[Message]:
+    """字串視為單則 user 訊息；已是列表則複製回傳。"""
+    if isinstance(messages, str):
+        return [user_message(messages)]
+    return list(messages)

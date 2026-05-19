@@ -34,6 +34,24 @@ McpServersArg = list[str] | Literal["all"] | None
 DEFAULT_MAX_TOOL_ROUNDS = 5
 
 
+def ask_mcp(
+    question: str,
+    *,
+    mcp_servers: McpServersArg,
+    model: str | None = None,
+    max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS,
+    **kwargs: Any,
+) -> str:
+    """單次 MCP 問答：只需傳入問題字串，無需自行組 ``messages`` / ``tools``。"""
+    return complete_with_mcp_loop(
+        [{"role": "user", "content": question}],
+        model,
+        mcp_servers=mcp_servers,
+        max_tool_rounds=max_tool_rounds,
+        **kwargs,
+    )
+
+
 def resolve_mcp_server_names(
     mcp_servers: McpServersArg,
     mgr: MCPManager,

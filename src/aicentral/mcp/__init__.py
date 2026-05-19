@@ -21,10 +21,12 @@ MCP **不是** LLM：不產生 chat completion，只提供 ``list_tools`` / ``ca
 | ``registry`` | 執行期 ``register_mcp_server()``，與 yaml 合併 |
 | ``orchestrator`` | ``complete(..., mcp_servers=...)`` 的 agent tool loop |
 
-對外入口
-~~~~~~~~
-- 手動：``MCPManager.from_config()`` → ``list_tools`` / ``call_tool``
-- 自動編排：``complete_with_mcp_loop`` 或 ``complete(..., mcp_servers=[...])``、``Chat(mcp_servers=...)``
+對外入口（呼叫方只需提問，不必組 LLM messages）
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- **推薦**：``Chat.with_mcp(["deepwiki"]).ask("你的問題")`` — 有狀態多輪、自動 tool loop
+- 單次：``complete("你的問題", mcp_servers=["deepwiki"])`` — 字串即 user 訊息
+- 手動工具：``MCPManager.from_config()`` → ``list_tools`` / ``call_tool``
+- 進階：``complete_with_mcp_loop``（訊息列表、自訂迴圈）
 - 設定：``config/aicentral.yaml`` 的 ``mcp_servers``；亦可 ``register_mcp_server()``
 - HTTP 暴露 MCP：見 **0.6.1** Gateway（``gateway/routes/mcp``，規劃／文件中）
 
@@ -39,6 +41,7 @@ MCP **不是** LLM：不產生 chat completion，只提供 ``list_tools`` / ``ca
 from aicentral.config.schema import MCPServerEntry
 from aicentral.mcp.manager import AICENTRAL_MCP_PREFIX, MCPError, MCPManager
 from aicentral.mcp.orchestrator import (
+    ask_mcp,
     complete_with_mcp_loop,
     mcp_tool_to_openai,
     resolve_mcp_server_names,
@@ -56,6 +59,7 @@ __all__ = [
     "MCPServerEntry",
     "MCPError",
     "MCPManager",
+    "ask_mcp",
     "complete_with_mcp_loop",
     "mcp_tool_to_openai",
     "resolve_mcp_server_names",

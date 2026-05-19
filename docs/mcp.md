@@ -195,16 +195,18 @@ python example_02_complete_mcp.py
 
 LiteLLM 在 `tools` 參數中接受 `type: "mcp"`，由 Proxy 代為 list/call。
 
-**0.6.0** 起 `complete(..., mcp_servers=[...])` 與 `Chat(mcp_servers=...)` 會自動執行 tool loop（**非串流**）：
+**0.6.0** 起可自動執行 tool loop（**非串流**）；呼叫方只需提問，不必組 `messages` / `tools`：
 
 ```python
-from aicentral import complete
+from aicentral import Chat, complete, ask_mcp
 
-reply = complete(
-    [{"role": "user", "content": "用 DeepWiki 查 aicentral"}],
-    mcp_servers=["deepwiki"],
-    max_tool_rounds=5,
-)
+# 單次
+reply = complete("用 DeepWiki 查 aicentral", mcp_servers=["deepwiki"])
+
+# 或多輪（推薦）
+chat = Chat.with_mcp(["deepwiki"])
+reply = chat.ask("MCP 協定是什麼？")
+reply2 = chat.ask("再簡述上一題重點")
 ```
 
 仍可直接使用 `MCPManager` 手動編排；Proxy HTTP 見 **[aicentral-v0.6.1.md](./aicentral-v0.6.1.md)**（規劃中）。
