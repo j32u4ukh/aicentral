@@ -164,10 +164,8 @@ name = MCPManager.parse_server_url("aicentral/mcp/deepwiki")  # -> "deepwiki"
 
 | 腳本 | 對應 API |
 |------|----------|
-| `example_01_manager_manual.py` | `MCPManager.list_tools` / `call_tool`、`mcp_tool_to_openai` |
-| `example_02_complete_mcp.py` | `complete(..., mcp_servers=...)` |
-| `example_03_chat_mcp.py` | `Chat(mcp_servers=...)` |
-| `example_04_register_server.py` | `register_mcp_server` + 合併設定 |
+| `example_01`～`04` | Import：`MCPManager`、`Chat.with_mcp` |
+| `example_http_01`～`03` | HTTP：`/v1/mcp/servers`、tools（見 `mcp_http_common`） |
 
 ```powershell
 cd aicentral-mcp
@@ -175,7 +173,7 @@ pip install -e .
 python example_02_complete_mcp.py
 ```
 
-對話 + MCP 的簡化 REPL 亦可見 [`aicentral-chat/chat_mcp.py`](../../aicentral-chat/chat_mcp.py)。
+HTTP 路徑見 [`aicentral-mcp`](../../aicentral-mcp) 的 `example_http_*.py` 與 `mcp_http_common.py`。
 
 ---
 
@@ -209,7 +207,7 @@ reply = chat.ask("MCP 協定是什麼？")
 reply2 = chat.ask("再簡述上一題重點")
 ```
 
-仍可直接使用 `MCPManager` 手動編排；Proxy HTTP 見 **[aicentral-v0.6.1.md](./aicentral-v0.6.1.md)**（規劃中）。
+仍可直接使用 `MCPManager` 手動編排。本機 Proxy HTTP 見 **[aicentral-v0.6.1.md](./aicentral-v0.6.1.md)**、[proxy.md](./proxy.md)；範例 **[aicentral-mcp](../../aicentral-mcp)**（`mcp_http_common`）。
 
 ---
 

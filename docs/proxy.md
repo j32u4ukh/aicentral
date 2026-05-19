@@ -63,6 +63,14 @@ Proxy **只委派** `complete()`；業務邏輯、對話狀態、MCP 編排仍�
 |------|------|------|
 | `GET` | `/health` | 健康檢查 |
 | `POST` | `/v1/chat/completions` | 對話（支援 `stream: true` SSE） |
+| `GET` | `/v1/mcp/servers` | MCP server 列表（yaml + 執行期；**0.6.1**） |
+| `POST` | `/v1/mcp/servers` | 執行期註冊 MCP server |
+| `PUT` | `/v1/mcp/servers/{server}` | 覆寫執行期註冊 |
+| `DELETE` | `/v1/mcp/servers/{server}` | 移除執行期註冊 |
+| `GET` | `/v1/mcp/{server}/tools` | 列出工具 |
+| `POST` | `/v1/mcp/{server}/tools/{tool}` | 呼叫工具 |
+
+需 `pip install "aicentral[gateway,mcp]"` 才能使用 MCP 路由。
 
 請求體對齊 OpenAI：`model`（必填）、`messages`、`stream` 等。  
 `messages[].content` 可為字串，或 **parts**（`text`、`image_url`；圖片建議 base64 data URL）。
@@ -82,7 +90,7 @@ Proxy **只委派** `complete()`；業務邏輯、對話狀態、MCP 編排仍�
 
 ```powershell
 cd aicentral
-pip install -e ".[gateway]"
+pip install -e ".[gateway,mcp]"
 ```
 
 ### 啟動 Proxy
@@ -148,6 +156,44 @@ print(response.choices[0].message.content)
 ```
 
 其他語言只要支援「自訂 OpenAI base URL」的客戶端，皆可指向 `http://127.0.0.1:8080/v1`，且程式須跑在**同一台機器**上。
+
+---
+
+## MCP（0.6.1）
+
+MCP 與 Chat Completions **分離**：Gateway 提供 server 列表與 `list_tools` / `call_tool`，不自動跑 tool loop（多輪編排請用 Library `Chat.with_mcp` 或消費方腳本）。
+
+### Server 列表
+
+```powershell
+# 終端 1
+python -m aicentral.gateway
+
+# 終端 2
+curl -s http://127.0.0.1:8080/v1/mcp/servers
+
+curl -s -X POST http://127.0.0.1:8080/v1/mcp/servers `
+  -H "Content-Type: application/json" `
+  -d '{"name":"fetch","transport":"stdio","command":"uvx","args":["mcp-server-fetch"]}'
+
+curl -s http://127.0.0.1:8080/v1/mcp/servers/fetch
+
+curl -s -X DELETE http://127.0.0.1:8080/v1/mcp/servers/fetch
+```
+
+回應**不含**明文 `auth_value`；`POST`/`PUT` body 可帶 `auth_value` 註冊。
+
+### 工具
+
+```powershell
+curl -s http://127.0.0.1:8080/v1/mcp/deepwiki/tools
+
+curl -s -X POST http://127.0.0.1:8080/v1/mcp/deepwiki/tools/deepwiki__search `
+  -H "Content-Type: application/json" `
+  -d '{"arguments": {"query": "Model Context Protocol"}}'
+```
+
+消費方範例：[`aicentral-mcp`](../../aicentral-mcp)（`example_http_*.py`、`mcp_http_common.py`）。
 
 ---
 

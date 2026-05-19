@@ -26,7 +26,7 @@ from aicentral.routing.parser import ParsedModel, parse_model
 from aicentral.routing.router import ResolvedCall, effective_model, resolve_call
 from aicentral.structured.retry import append_retry_hint
 
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 __all__ = [
     "Chat",
     "ChatMode",

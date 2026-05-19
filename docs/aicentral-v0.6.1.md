@@ -3,7 +3,7 @@
 > 總覽：[aicentral.md](./aicentral.md) · 前置：**0.6.0**（Library tool loop）· Proxy：[proxy.md](./proxy.md)、[aicentral-v5.0.md](./aicentral-v5.0.md)  
 > MCP 執行期註冊（Library）：[mcp.md](./mcp.md) — `register_mcp_server()`
 
-**套件版本**：`0.6.1`（可選里程碑；若僅需 Python `import`，可略過本版）
+**套件版本**：`0.6.1`（已交付，見 `pyproject.toml`）
 
 ---
 
@@ -14,7 +14,7 @@
 1. **MCP Server 列表**：查詢、執行期註冊／更新／移除（對應 Library 的 `register_mcp_server` / `unregister_mcp_server`）。
 2. **MCP 工具**：對已登錄的 server 執行 `list_tools` / `call_tool`。
 
-使非 Python 客戶端或 `aicentral-chat` 的 HTTP 路徑也能管理 MCP 連線並呼叫工具，**無需**在消費方重複實作 MCP Client。
+使非 Python 客戶端或 [`aicentral-mcp`](../../aicentral-mcp) 的 HTTP 範例也能管理 MCP 連線並呼叫工具，**無需**在消費方重複實作 MCP Client。
 
 **仍不做的**：對外網開放、OAuth、Gateway 內完整 agent 多輪規劃（多輪 tool loop 建議在 0.6.0 `complete` 完成）、修改磁碟上的 `aicentral.yaml`（HTTP 僅影響**執行期註冊表**）。
 
@@ -229,75 +229,22 @@ curl -s -X POST http://127.0.0.1:8080/v1/mcp/deepwiki/tools/deepwiki__search ^
 curl -s -X DELETE http://127.0.0.1:8080/v1/mcp/servers/fetch
 ```
 
-### `aicentral-chat/chat_mcp_http.py`（規劃）
+### [`aicentral-mcp`](../../aicentral-mcp) HTTP 範例
 
-```python
-#!/usr/bin/env python3
-"""經本機 Proxy HTTP 管理 MCP server 列表並呼叫工具（示範 0.6.1）。"""
+可重用函式見 `mcp_http_common.py`：`list_mcp_servers`、`register_mcp_server_http`、`list_mcp_tools`、`call_mcp_tool` 等。
 
-import httpx
+| 腳本 | 說明 |
+|------|------|
+| `example_http_01_servers.py` | `/v1/mcp/servers` |
+| `example_http_02_tools.py` | `list_tools` / `call_tool` |
+| `example_http_03_overview.py` | 列表 + 工具一覽 |
 
-from chat_common import require_aicentral_config
-from chat_http import gateway_api_key, gateway_base_url
-
-
-def _headers() -> dict[str, str]:
-    headers: dict[str, str] = {}
-    if token := gateway_api_key():
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
-
-
-def list_mcp_servers() -> list[dict]:
-    base = gateway_base_url()
-    r = httpx.get(f"{base}/v1/mcp/servers", headers=_headers(), timeout=30.0)
-    r.raise_for_status()
-    return r.json()["servers"]
-
-
-def register_mcp_server_http(name: str, entry: dict) -> None:
-    base = gateway_base_url()
-    body = {"name": name, **entry}
-    r = httpx.post(f"{base}/v1/mcp/servers", json=body, headers=_headers(), timeout=30.0)
-    r.raise_for_status()
-
-
-def list_mcp_tools(server: str) -> list[dict]:
-    base = gateway_base_url()
-    r = httpx.get(f"{base}/v1/mcp/{server}/tools", headers=_headers(), timeout=30.0)
-    r.raise_for_status()
-    return r.json()["tools"]
-
-
-def call_mcp_tool(server: str, tool_name: str, arguments: dict) -> object:
-    base = gateway_base_url()
-    r = httpx.post(
-        f"{base}/v1/mcp/{server}/tools/{tool_name}",
-        json={"arguments": arguments},
-        headers=_headers(),
-        timeout=120.0,
-    )
-    r.raise_for_status()
-    return r.json()
-
-
-def main() -> None:
-    require_aicentral_config()
-    print("Servers:", [s["name"] for s in list_mcp_servers()])
-    tools = list_mcp_tools("deepwiki")
-    print(f"Tools: {[t['name'] for t in tools]}")
-
-
-if __name__ == "__main__":
-    main()
-```
-
-### 與 0.6.0 `chat_mcp.py` 的選擇
+### Import 與 HTTP 的選擇（均在 aicentral-mcp）
 
 | 腳本 | 路徑 | 適用 |
 |------|------|------|
-| `chat_mcp.py` | `import Chat` + `mcp_servers=` / `register_mcp_server()` | 純 Python、單進程 |
-| `chat_mcp_http.py` | Proxy `/v1/mcp/servers` + `/v1/mcp/.../tools` | 非 Python、或統一走 HTTP |
+| `example_02` / `example_03` | `Chat.with_mcp` + `ask()` | Python、自動 tool loop |
+| `example_http_*` | Proxy `/v1/mcp/*` | HTTP 客戶端、分步呼叫工具 |
 
 ---
 
@@ -325,7 +272,7 @@ print(complete(
 4. `POST /v1/mcp/deepwiki/tools/{name}` 執行 tool
 5. 再 `POST /v1/chat/completions` 帶 `role: tool` 訊息
 
-路徑 B 的編排可由 `chat_mcp_http.py` 或外部腳本實作；Gateway **只提供積木**。
+路徑 B 的編排可由 `aicentral-mcp` 的 HTTP 範例或外部腳本實作；Gateway **只提供積木**。
 
 ---
 
@@ -333,21 +280,22 @@ print(complete(
 
 ### Server 列表
 
-- [ ] 僅 `127.0.0.1` 可存取；他機 403
-- [ ] `GET /v1/mcp/servers` 回傳 yaml + 執行期合併列表，含 `source`
-- [ ] `POST /v1/mcp/servers` 註冊後，`GET` 可見且 `MCPManager` 可 `list_tools`
-- [ ] `DELETE /v1/mcp/servers/{name}` 僅移除執行期項；回應不含明文 `auth_value`
-- [ ] 回應 JSON **永不**包含 `auth_value`（僅接受於 `POST`/`PUT` body）
+- [x] 僅 `127.0.0.1` 可存取；他機 403（沿用 gateway localhost 中介層）
+- [x] `GET /v1/mcp/servers` 回傳 yaml + 執行期合併列表，含 `source`
+- [x] `POST /v1/mcp/servers` 註冊後，`GET` 可見且 `MCPManager` 可 `list_tools`
+- [x] `DELETE /v1/mcp/servers/{name}` 僅移除執行期項；yaml-only 回 404
+- [x] 回應 JSON **永不**包含 `auth_value`（僅接受於 `POST`/`PUT` body）
 
 ### 工具
 
-- [ ] `GET /v1/mcp/{server}/tools` 在 mock 或整合環境回傳工具列表
-- [ ] `POST .../tools/{tool}` 在 mock 環境回傳 200
+- [x] `GET /v1/mcp/{server}/tools` 在 mock 或整合環境回傳工具列表
+- [x] `POST .../tools/{tool}` 在 mock 環境回傳 200
 
 ### 其他
 
-- [ ] 未安裝 `[mcp]` 時啟動 Gateway 行為明確（略過 MCP 路由或啟動提示）
-- [ ] [proxy.md](./proxy.md) 含 Server 列表與工具兩類 curl 範例
+- [x] 未安裝 `mcp` 套件時 MCP 路由回 503
+- [x] [proxy.md](./proxy.md) 含 Server 列表與工具 curl 範例
+- [x] [`aicentral-mcp`](../../aicentral-mcp) HTTP 範例（`mcp_http_common`、`example_http_*`）
 
 ---
 

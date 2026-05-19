@@ -28,7 +28,7 @@ MCP **不是** LLM：不產生 chat completion，只提供 ``list_tools`` / ``ca
 - 手動工具：``MCPManager.from_config()`` → ``list_tools`` / ``call_tool``
 - 進階：``complete_with_mcp_loop``（訊息列表、自訂迴圈）
 - 設定：``config/aicentral.yaml`` 的 ``mcp_servers``；亦可 ``register_mcp_server()``
-- HTTP 暴露 MCP：見 **0.6.1** Gateway（``gateway/routes/mcp``，規劃／文件中）
+- HTTP 暴露 MCP：**0.6.1** Gateway（``gateway/routes/mcp``、``proxy.md``）
 
 錯誤分工
 ~~~~~~~~
