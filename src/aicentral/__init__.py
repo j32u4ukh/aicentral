@@ -12,10 +12,11 @@ from aicentral.core.errors import (
     StructuredOutputError,
     StructuredValidationError,
 )
-from aicentral.core.types import ChatResponse, Message, Role
+from aicentral.core.types import ChatResponse, Message, Role, as_messages, user_message
 from aicentral.mcp import (
     MCPManager,
     MCPServerEntry,
+    ask_mcp,
     register_mcp_server,
     register_mcp_servers,
     registered_mcp_servers,
@@ -25,7 +26,7 @@ from aicentral.routing.parser import ParsedModel, parse_model
 from aicentral.routing.router import ResolvedCall, effective_model, resolve_call
 from aicentral.structured.retry import append_retry_hint
 
-__version__ = "0.5.0"
+__version__ = "0.6.1"
 __all__ = [
     "Chat",
     "ChatMode",
@@ -34,6 +35,9 @@ __all__ = [
     "Message",
     "ParsedModel",
     "Role",
+    "as_messages",
+    "user_message",
+    "ask_mcp",
     "complete",
     "complete_structured",
     "parse_model",

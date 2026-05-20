@@ -20,7 +20,9 @@ from aicentral.core.errors import (
     StructuredNoPayloadError,
     StructuredValidationError,
 )
-from aicentral.core.types import Message
+from aicentral.core.types import Message, as_messages
+from aicentral.mcp.manager import MCPError
+from aicentral.mcp.orchestrator import complete_with_mcp_loop
 from aicentral.routing.router import complete_with_fallback, invoke_resolved, resolve_fallback_chain
 from aicentral.structured.debug import summarize_assistant_message
 from aicentral.structured.extract import ExtractMode, from_chat_completion
@@ -49,7 +51,7 @@ def _with_system_prompt(messages: list[Message], system: str | None) -> list[Mes
 
 @overload
 def complete(
-    messages: list[Message],
+    messages: str | list[Message],
     model: str | None = None,
     *,
     stream: bool = False,
@@ -62,7 +64,7 @@ def complete(
 
 @overload
 def complete(
-    messages: list[Message],
+    messages: str | list[Message],
     model: str | None = None,
     *,
     stream: bool = True,
@@ -74,7 +76,7 @@ def complete(
 
 
 def complete(
-    messages: list[Message],
+    messages: str | list[Message],
     model: str | None = None,
     *,
     stream: bool = False,
@@ -86,17 +88,34 @@ def complete(
     """
     送出對話並回傳助理回覆。
 
+  ``messages`` 可為 **使用者問題字串**（自動包成 ``role: user``）或訊息列表。
+
     model 可為裸名 ``gemma4:e2b`` 或 ``ollama/gemma4:e2b``（v2.0 路由）。
 
     未傳 model 時依 yaml ``defaults.model``（見 ``routing.effective_model``）。
+
+    ``mcp_servers``：啟用 MCP 工具編排（非串流）；見 ``mcp/orchestrator``。
+    有狀態多輪請用 ``Chat.with_mcp(...).ask(...)``。
     """
     try:
-        resolved_messages = _with_system_prompt(messages, system)
+        resolved_messages = _with_system_prompt(as_messages(messages), system)
         extra = dict(kwargs)
+        mcp_servers = extra.pop("mcp_servers", None)
+        max_tool_rounds = int(extra.pop("max_tool_rounds", 5))
         if base_url is not None:
             extra["base_url"] = base_url
         if api_key is not None:
             extra["api_key"] = api_key
+        if mcp_servers is not None:
+            if stream:
+                raise ValueError("mcp_servers 不支援 stream=True；請使用 stream=False")
+            return complete_with_mcp_loop(
+                resolved_messages,
+                model,
+                mcp_servers=mcp_servers,
+                max_tool_rounds=max_tool_rounds,
+                **extra,
+            )
         if stream:
             return complete_with_fallback(
                 resolved_messages,
@@ -110,8 +129,13 @@ def complete(
             stream=False,
             **extra,
         )
+    except MCPError:
+        raise
     except ValueError as exc:
-        err = ProviderError(str(exc))
+        msg = str(exc)
+        if "mcp_servers" in msg or "max_tool_rounds" in msg:
+            raise
+        err = ProviderError(msg)
         dev_print_exception(err, context="complete() model 解析失敗")
         raise err from exc
     except ProviderError as exc:

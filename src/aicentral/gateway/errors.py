@@ -19,6 +19,16 @@ def openai_error_response(
     )
 
 
+def mcp_error_response(exc: Exception, *, status_code: int = 400) -> JSONResponse:
+    from aicentral.mcp.manager import MCPError
+
+    if isinstance(exc, MCPError):
+        return openai_error_response(str(exc), status_code=status_code, error_type="mcp_error")
+    if isinstance(exc, ImportError):
+        return openai_error_response(str(exc), status_code=503, error_type="api_error")
+    return openai_error_response(str(exc), status_code=status_code)
+
+
 def provider_error_response(exc: Exception) -> JSONResponse:
     from aicentral.core.errors import ProviderError
 

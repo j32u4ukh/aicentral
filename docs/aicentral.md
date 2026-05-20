@@ -5,7 +5,7 @@
 > Proxy 使用：[proxy.md](./proxy.md) · MCP 使用：[mcp.md](./mcp.md)  
 > 定位：輕量化合併 LiteLLM（統一呼叫）與 Instructor（結構化輸出）的設計思想，**不依賴** `litellm` / `instructor` 套件。
 
-**套件版本**以 [`pyproject.toml`](../pyproject.toml) 的 `version` 為準（目前 **0.5.0**）。下文「0.x」指套件 semver，與早期文件中的「v1.0～v5.0 里程碑」不同；歷史里程碑說明見文末連結。
+**套件版本**以 [`pyproject.toml`](../pyproject.toml) 的 `version` 為準（目前 **0.6.1**）。下文「0.x」指套件 semver，與早期文件中的「v1.0～v5.0 里程碑」不同；歷史里程碑說明見文末連結。
 
 ---
 
@@ -17,14 +17,14 @@
 - ✅ 可選 **HTTP Proxy**（`pip install "aicentral[gateway]"`、`python -m aicentral.gateway`）
 - ✅ 可選 **MCP 工具層**（`pip install "aicentral[mcp]"`、`MCPManager`）
 - ❌ 不在此 repo 封裝業務 API、領域 model、workflow
-- ❌ 業務邏輯放在**消費方專案**（例如 [`aicentral-chat`](../../aicentral-chat)）
+- ❌ 業務邏輯放在**消費方專案**（例如 [`aicentral-chat`](../../aicentral-chat)、[`aicentral-mcp`](../../aicentral-mcp)）
 
 ```
-aicentral-chat / 你的後端
+aicentral-chat / aicentral-mcp / 你的後端
         │
         ├─ import：complete / Chat / complete_structured
         ├─ HTTP：POST /v1/chat/completions（本機 Proxy）
-        └─ MCP：MCPManager.list_tools / call_tool
+        └─ MCP：MCPManager、complete(mcp_servers=...)
         ▼
    aicentral（能力層）
         │
@@ -34,7 +34,7 @@ aicentral-chat / 你的後端
 
 ---
 
-## 0.5.0 已交付能力
+## 目前已交付能力（0.6.0）
 
 | 領域 | 模組 / API | 說明 |
 |------|------------|------|
@@ -43,7 +43,7 @@ aicentral-chat / 你的後端
 | 路由 | `routing/parser`、`routing/router` | `provider/model`、yaml `model_list`、fallback |
 | 設定 | `config/loader`、`config/schema` | `config/aicentral.yaml` + `config/secret.yaml` |
 | 供應商 | `providers/*` | Ollama（OpenAI 相容）、OpenAI、Anthropic、Gemini |
-| MCP（基礎） | `mcp/client`、`mcp/manager`、`mcp/registry` | yaml 或 `register_mcp_server()`；`list_tools` / `call_tool` |
+| MCP | `mcp/client`、`mcp/manager`、`mcp/registry`、`mcp/orchestrator` | `list_tools` / `call_tool`；`complete(mcp_servers=...)` tool loop |
 | Proxy | `gateway/*` | 本機 loopback、`POST /v1/chat/completions`、SSE |
 
 驗收（開發機）：
@@ -61,13 +61,16 @@ python -m aicentral.gateway
 
 # 消費方範例
 cd ..\aicentral-chat
-python chat.py          # import Chat
-python chat_http.py     # HTTP Proxy
+python chat.py              # import Chat
+python chat_http.py         # HTTP Proxy
+cd ..\aicentral-mcp
+pip install -e .
+python example_02_complete_mcp.py   # complete + MCP 編排
 ```
 
 ---
 
-## 目錄結構（0.5.0）
+## 目錄結構
 
 ```
 src/aicentral/
@@ -102,34 +105,39 @@ tests/                   # core、providers、routing、structured、mcp、gatew
 | `config/secret.yaml` | 巢狀機密；`secret/ollama.api_key` 等形式由 loader 展開 |
 | `register_mcp_server()` | 執行期註冊 MCP server，與 yaml 合併（見 [mcp.md](./mcp.md)） |
 
-[`aicentral-chat`](../../aicentral-chat) 為獨立示範專案：`chat.py`（直接 `Chat`）、`chat_http.py`（本機 Proxy）。**禁止**在消費方直接 `httpx` 打 Ollama 或繞過 aicentral 的路由／設定。
+| 消費方專案 | 用途 |
+|------------|------|
+| [`aicentral-chat`](../../aicentral-chat) | 終端對話：`chat.py`（`Chat`）、`chat_http.py`（Proxy） |
+| [`aicentral-mcp`](../../aicentral-mcp) | **MCP 專用**：Import（`Chat.with_mcp`）與 HTTP（`/v1/mcp/*`）兩套範例 |
+
+**禁止**在消費方直接 `httpx` 打 Ollama 或繞過 aicentral 的路由／設定。
 
 ---
 
 ## 與上游概念的對照
 
-| 上游 | aicentral 模組 | 0.5.0 狀態 |
+| 上游 | aicentral 模組 | 狀態 |
 |------|----------------|------------|
 | LiteLLM `completion()` | `complete()` | ✅ |
 | LiteLLM `llms/*` | `providers/*` | ✅ |
 | LiteLLM `router_strategy/*` | `routing/*` | ✅ |
 | Instructor `response_model` | `complete_structured()` + `structured/*` | ✅ |
 | LiteLLM `proxy/*` | `gateway/*`（本機） | ✅ |
-| LiteLLM `responses/mcp/` | `mcp/*` | ⚠️ 基礎 client；編排見下方 0.6+ |
-| 業務 / 對話 UI | **消費方**（`aicentral-chat` 等） | ✅ |
+| LiteLLM `responses/mcp/` | `mcp/*` | ✅ client + `complete(mcp_servers=...)` 編排 |
+| 業務 / 對話 UI | **消費方**（`aicentral-chat`、`aicentral-mcp` 等） | ✅ |
 
 ---
 
-## 後續規劃：MCP 與工具編排（0.6.x）
+## MCP 里程碑（0.6.x）
 
-0.5.0 已能透過 **`MCPManager`** 手動 `list_tools` / `call_tool`，但 **`complete()` / `Chat` / Proxy 尚未內建「模型 ↔ MCP 工具」自動迴圈**。目前路線圖**僅保留 MCP MVP**，其餘進階能力**不預排版本**——需求變複雜時再在消費方或 aicentral 按需擴充。
+| 版本 | 目標 | 狀態 |
+|------|------|------|
+| **0.6.0** | Library：`Chat.with_mcp` / `complete(mcp_servers=...)` tool loop | ✅ [aicentral-v0.6.0.md](./aicentral-v0.6.0.md) |
+| **0.6.1** | Proxy HTTP：`/v1/mcp/servers` + `/v1/mcp/{server}/tools` | ✅ [aicentral-v0.6.1.md](./aicentral-v0.6.1.md) |
 
-| 版本 | 目標 | 主要產出 | 驗收 |
-|------|------|----------|------|
-| **0.6.0** | Library 工具編排 | `core` 辨識 OpenAI 風格 `tools` 中的 MCP 宣告；委派 `MCPManager` 執行 `call_tool`；`Chat` 可選開啟 tool loop | `complete(..., mcp_servers=[...])` 跑通一輪 list → call → 再 complete · 規格：[aicentral-v0.6.0.md](./aicentral-v0.6.0.md) |
-| **0.6.1**（可選） | Proxy 暴露 MCP | `gateway`：MCP server 列表 CRUD（執行期註冊）+ `list_tools` / `call_tool`；仍僅 loopback | curl 管理 server 列表並呼叫工具 · 規格：[aicentral-v0.6.1.md](./aicentral-v0.6.1.md) |
+其餘 MCP 進階能力**不預排版本**。
 
-**0.5.0 已足夠的認證**：`auth_type: none` / `bearer_token` / `basic` + `secret.yaml` 靜態 token，無需另做 OAuth 模組即可接多數遠端 MCP。
+**認證**：`auth_type: none` / `bearer_token` / `basic` + `secret.yaml` 靜態 token，無需 OAuth 模組即可接多數遠端 MCP。
 
 ### 刻意不做（非延後，保持輕量）
 
@@ -142,32 +150,28 @@ tests/                   # core、providers、routing、structured、mcp、gatew
 | MCP 專用可觀測／metrics 平台 | 先用應用層日誌；有需要再加 |
 | Gateway 對外網開放 MCP | 與本機 Proxy 定位不符 |
 
-### 0.6.0 — `complete()` 與 MCP 編排（規劃）
+### 0.6.0 — `complete()` 與 MCP 編排（已交付）
 
-> 完整任務、API 草案、驗收與 `aicentral-chat/chat_mcp.py` 範例見 **[aicentral-v0.6.0.md](./aicentral-v0.6.0.md)**。
-
-**原則**：MCP 仍**不**註冊為 `providers/mcp`；編排邏輯放在 `core/`（或薄層 `mcp/orchestrator.py`），由 `complete()` / `Chat` 在偵測到 MCP 工具時呼叫 `MCPManager`。
+> 規格與驗收見 **[aicentral-v0.6.0.md](./aicentral-v0.6.0.md)**；可執行範例見 **[aicentral-mcp](../../aicentral-mcp)**（`example_01`～`example_04`）。
 
 ```
-complete(messages, tools=[...])
-  → 分離一般 function tools 與 MCP 工具（server_name / aicentral/mcp/<name>）
-  → MCPManager.list_tools / call_tool
-  → 將 tool result 併回 messages
-  → 再走既有 routing → providers（不觸發 LLM fallback）
+complete(messages, mcp_servers=["deepwiki"])
+  → mcp/orchestrator：list_tools → OpenAI tools
+  → 模型 tool_calls → MCPManager.call_tool → role: tool
+  → 迴圈直至文字或 max_tool_rounds（MCPError 不觸發 LLM fallback）
 ```
 
 | 項目 | 說明 |
 |------|------|
-| 設定 | 沿用 `mcp_servers`、`mcp_settings`；機密 `secret/mcp.*` |
-| 依賴 | `pip install "aicentral[mcp]"`（`mcp>=1.6.0`） |
-| 錯誤 | `MCPError` 不觸發 router 的 provider fallback |
-| 認證 | 沿用 0.5.0 的 bearer / basic + `secret/mcp.*`；不實作 OAuth |
+| 設定 | `mcp_servers`、`mcp_settings`；`register_mcp_server()` |
+| 依賴 | `pip install "aicentral[mcp]"` |
+| 限制 | MCP loop **不支援** `stream=True` |
 
-### 0.6.1 — Proxy 與 MCP HTTP（可選）
+### 0.6.1 — Proxy 與 MCP HTTP（已交付）
 
-> 完整 HTTP 契約、curl／`chat_mcp_http.py` 範例見 **[aicentral-v0.6.1.md](./aicentral-v0.6.1.md)**。
+> 完整 HTTP 契約、curl／[`aicentral-mcp`](../../aicentral-mcp) 見 **[aicentral-v0.6.1.md](./aicentral-v0.6.1.md)**、[proxy.md](./proxy.md)。
 
-對照 LiteLLM Proxy 的 MCP 掛載，在**本機** Gateway 增加 REST（路徑草案，實作時以程式為準）：
+本機 Gateway REST：
 
 **Server 列表**（對應 `register_mcp_server` / `unregister_mcp_server`）：
 
@@ -187,11 +191,12 @@ complete(messages, tools=[...])
 
 仍遵守 v5.0 Proxy 約束：僅 `127.0.0.1`、可選 `optional_token`、**不**在 Gateway 內實作完整 agent workflow（多輪規劃留給消費方）。
 
-### 消費方範例（規劃後）
+### 消費方範例
 
-| 專案 | 0.5.0 | 0.6+ |
-|------|-------|------|
-| `aicentral-chat` | `chat.py`、`chat_http.py` | 可選 `chat_mcp.py`：示範 tool loop 或 HTTP MCP |
+| 專案 | 腳本 | 說明 |
+|------|------|------|
+| `aicentral-chat` | `chat.py`、`chat_http.py` | 純對話（import / Proxy） |
+| `aicentral-mcp` | `example_*`、`example_http_*` | MCP：Import + HTTP 兩套 |
 
 詳細欄位與 LiteLLM 對照見 [mcp.md](./mcp.md)、[aicentral-v4.0.md](./aicentral-v4.0.md)（MCP 分層）、[aicentral-v5.0.md](./aicentral-v5.0.md)（Proxy 規格）。
 
@@ -215,10 +220,10 @@ complete(messages, tools=[...])
 
 | 問題 | 答案 |
 |------|------|
-| 目前版本？ | **0.5.0**（見 `pyproject.toml`） |
-| 現在能做什麼？ | 多供應商對話、結構化輸出、yaml 設定、MCP 手動呼叫、本機 HTTP Proxy |
-| 下一步做什麼？ | **0.6.0** MCP 工具編排；**0.6.1** 可選 Proxy MCP HTTP |
+| 目前版本？ | **0.6.1**（見 `pyproject.toml`） |
+| 現在能做什麼？ | 多供應商對話、結構化輸出、MCP tool loop、Proxy MCP HTTP、本機 Chat Proxy |
+| 下一步做什麼？ | 依需求在消費方擴充；無預排 MCP 版本 |
 | 業務放哪？ | **消費方專案**，不在 aicentral |
 | MCP 是 LLM 嗎？ | **否**；獨立 `mcp/` 模組，不經 `parse_model` 選 provider |
 
-實作 0.6.0 時，以「設定內任一 MCP server 能在 `complete(..., tools=...)` 完成一輪 tool call」為驗收即可；其餘能力隨需求再加，不預先排進版本表。
+MCP 可選 **import**（`Chat.with_mcp`）或 **HTTP**（`/v1/mcp/*`）；其餘能力隨需求在消費方擴充。

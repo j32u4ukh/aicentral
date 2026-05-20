@@ -12,7 +12,7 @@ from aicentral.config import load_config
 from aicentral.config.loader import get_config
 from aicentral.gateway.localhost import LocalClientMiddleware
 from aicentral.gateway.middleware import MaxBodyMiddleware
-from aicentral.gateway.routes import chat, health
+from aicentral.gateway.routes import chat, health, mcp
 
 
 @asynccontextmanager
@@ -26,6 +26,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="aicentral Gateway", lifespan=lifespan)
     app.include_router(health.router)
     app.include_router(chat.router)
+    app.include_router(mcp.router)
 
     app.add_middleware(
         MaxBodyMiddleware,
