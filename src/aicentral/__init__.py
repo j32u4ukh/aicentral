@@ -24,7 +24,12 @@ from aicentral.mcp import (
     unregister_mcp_server,
 )
 from aicentral.routing.parser import ParsedModel, parse_model
-from aicentral.routing.router import ResolvedCall, effective_model, resolve_call
+from aicentral.routing.router import (
+    ResolvedCall,
+    effective_embedding_model,
+    effective_model,
+    resolve_call,
+)
 from aicentral.structured.retry import append_retry_hint
 
 __version__ = "0.6.1"
@@ -48,6 +53,7 @@ __all__ = [
     "load_config",
     "ResolvedCall",
     "resolve_call",
+    "effective_embedding_model",
     "effective_model",
     "MCPManager",
     "MCPServerEntry",

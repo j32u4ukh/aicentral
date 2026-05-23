@@ -42,6 +42,29 @@ def effective_model(
     return f"ollama/{ollama_model}"
 
 
+def effective_embedding_model(
+    model: str | None,
+    *,
+    config: AICentralConfig | None = None,
+) -> str:
+    """
+    歷史向量分群用的 embedding 模型（與對話 ``model`` 分開設定）。
+
+    1. 參數 ``model``（非空）
+    2. ``defaults.embedding_model``
+    3. ``local-embed``（需在 ``model_list`` 定義；見 config/aicentral.yaml）
+    """
+    if model is not None and str(model).strip():
+        return model.strip()
+
+    cfg = config or get_config()
+    emb = (cfg.defaults.embedding_model or "").strip()
+    if emb:
+        return emb
+
+    return "local-embed"
+
+
 @dataclass(frozen=True)
 class ResolvedCall:
     """一次 LLM 呼叫的解析結果。"""

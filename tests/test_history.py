@@ -35,9 +35,15 @@ def test_trim_keep_last(mock_complete: MagicMock) -> None:
     assert chat.messages[0]["content"] == "c"
 
 
+@patch("aicentral.history.embedding", side_effect=RuntimeError("mock: skip vector"))
+@patch("aicentral.history.complete", return_value="summary")
 @patch("aicentral.chat.complete")
-def test_segment_compress(mock_complete: MagicMock) -> None:
-    mock_complete.side_effect = ["a1", "a2", "summary", "a3"]
+def test_segment_compress(
+    mock_chat_complete: MagicMock,
+    _mock_hist_complete: MagicMock,
+    _mock_embed: MagicMock,
+) -> None:
+    mock_chat_complete.side_effect = ["a1", "a2", "a3"]
 
     chat = Chat(
         max_messages=4,

@@ -4,6 +4,7 @@ from aicentral.routing.parser import DEFAULT_PROVIDER, KNOWN_PROVIDERS, ParsedMo
 from aicentral.routing.router import (
     ResolvedCall,
     complete_with_fallback,
+    effective_embedding_model,
     effective_model,
     resolve_call,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "ParsedModel",
     "ResolvedCall",
     "complete_with_fallback",
+    "effective_embedding_model",
     "effective_model",
     "parse_model",
     "resolve_call",

@@ -18,17 +18,13 @@ from typing import Any, TypeVar, overload
 
 from pydantic import BaseModel
 
-from aicentral.core.client import complete, complete_structured, embedding
+from aicentral.core.client import complete, complete_structured
 from aicentral.core.types import Message
 from aicentral.history import History, HistoryPolicy
+from aicentral.routing.router import effective_embedding_model, effective_model
 
 # 向後相容：歷史政策仍可由 ``from aicentral.chat import HistoryPolicy`` 匯入
 __all__ = ["Chat", "ChatMode", "HistoryPolicy"]
-
-# 供 History 透過 call_summary_api 回呼時使用的系統提示
-_SUMMARY_SYSTEM = (
-    "將以下對話摘要為一段繁體中文，保留事實與決策，刪除贅詞。只輸出摘要正文。"
-)
 
 
 class ChatMode(StrEnum):
@@ -63,6 +59,7 @@ class Chat:
         mcp_servers: list[str] | str | None = None,
         max_tool_rounds: int = 5,
         include_tool_messages_in_history: bool = False,
+        embedding_model: str | None = None,
     ) -> None:
         self._mode = mode
         self._system = system
@@ -71,11 +68,15 @@ class Chat:
         self._api_key = api_key
         self._mcp_servers = mcp_servers
         self._max_tool_rounds = max_tool_rounds
-        # 記憶體管理解耦：裁剪政策與儲存皆在 History 內完成
+        # 記憶體管理解耦：向量用 embedding_model，摘要用對話 model（見 defaults.embedding_model）
         self.history = History(
             max_messages=max_messages,
             policy=history_policy,
             include_tool_messages=include_tool_messages_in_history,
+            embedding_model=effective_embedding_model(embedding_model),
+            summary_model=effective_model(model),
+            base_url=base_url,
+            api_key=api_key,
         )
 
     @classmethod
@@ -226,8 +227,8 @@ class Chat:
         else:
             reply = result
 
-        # 寫入 history 並依 policy 修剪（傳入 self 供 SEGMENT_COMPRESS 回呼 embedding / 摘要）
-        self.history.record_turn(user_msg, reply, trail=trail, chat_session=self)
+        # 寫入 history 並依 policy 修剪（embedding / 摘要由 History 直連 core.client）
+        self.history.record_turn(user_msg, reply, trail=trail)
         return reply
 
     def complete_structured(
@@ -254,34 +255,19 @@ class Chat:
             **kwargs,
         )
         if self._mode == ChatMode.STATEFUL:
-            self.history.record_turn(
-                user_msg,
-                result.model_dump_json(),
-                chat_session=self,
-            )
+            self.history.record_turn(user_msg, result.model_dump_json())
         return result
 
     # ==========================================
-    # History 回呼介面（SEGMENT_COMPRESS 向量分群與 LLM 摘要）
+    # 對外便利方法（委派至 History 使用的同一組模型參數）
     # ==========================================
     def get_embedding(self, text: str) -> list[float]:
-        """封裝核心 Embedding 呼叫，供 ``History._segment_compress_by_vector`` 計算語意距離。"""
-        return embedding(
-            text=text,
-            model=self._model,
-            base_url=self._base_url,
-            api_key=self._api_key,
-        )
+        """取向量（使用 ``history.embedding_model``，非對話 ``model``）。"""
+        return self.history._get_embedding(text)
 
     def call_summary_api(self, text: str) -> str:
-        """封裝摘要 LLM 呼叫，供 ``History`` 將舊主題段落壓成單則前情摘要。"""
-        return complete(
-            messages=[{"role": "user", "content": text}],
-            model=self._model,
-            system=_SUMMARY_SYSTEM,
-            base_url=self._base_url,
-            api_key=self._api_key,
-        )
+        """產生歷史摘要（使用 ``history.summary_model``）。"""
+        return self.history._call_summary_api(text)
 
     def _mcp_complete_kwargs(self) -> dict[str, Any]:
         """組裝傳給底層 ``complete()`` 的 MCP 參數。"""
@@ -332,6 +318,6 @@ class Chat:
                 chunks.append(delta)
                 yield delta
             # 串流耗盡後才 record_turn；中途例外則不會執行到此
-            self.history.record_turn(user_msg, "".join(chunks), chat_session=self)
+            self.history.record_turn(user_msg, "".join(chunks))
 
         return _iter()

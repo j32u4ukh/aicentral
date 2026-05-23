@@ -6,6 +6,7 @@ app:
 
 defaults:
   model: local-chat
+  embedding_model: local-embed
   timeout: 120
   structured_mode: tool
 
@@ -14,6 +15,14 @@ model_list:
     provider: ollama
     params:
       model_id: gemma4:e2b
+      api_base: secret/ollama.base_url
+      api_key: secret/ollama.api_key
+
+  # 歷史 SEGMENT_COMPRESS 向量分群用（Ollama: ollama pull nomic-embed-text）
+  - model_name: local-embed
+    provider: ollama
+    params:
+      model_id: nomic-embed-text
       api_base: secret/ollama.base_url
       api_key: secret/ollama.api_key
 

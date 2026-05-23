@@ -2,8 +2,8 @@
 對話歷史：儲存、裁剪、向量分群壓縮與 MCP 整輪刪除。
 
 ``Chat`` 在每次 ``record_turn`` 後呼叫 ``maybe_trim``；超出 ``max_messages`` 時
-依 ``HistoryPolicy`` 執行對應策略。``SEGMENT_COMPRESS`` 需 ``chat_session`` 提供
-``get_embedding`` 與 ``call_summary_api`` 回呼。
+依 ``HistoryPolicy`` 執行對應策略。``SEGMENT_COMPRESS`` 直接呼叫 ``core.client`` 的
+``embedding()``（``embedding_model``）與 ``complete()``（``summary_model``），與對話模型分離。
 """
 
 from __future__ import annotations
@@ -12,15 +12,17 @@ import logging
 import math
 from collections.abc import Iterable
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from aicentral.core.client import complete, embedding
 from aicentral.core.errors import HistoryOverflowError
 from aicentral.core.types import Message
 
-if TYPE_CHECKING:
-    from aicentral.chat import Chat
-
 _logger = logging.getLogger(__name__)
+
+_SUMMARY_SYSTEM = (
+    "將以下對話摘要為一段繁體中文，保留事實與決策，刪除贅詞。只輸出摘要正文。"
+)
 
 # 傳統摘要壓縮（無 embedding）時，一次處理的最舊訊息數上限
 _LEGACY_SEGMENT_WINDOW = 5
@@ -52,6 +54,10 @@ class History:
         include_tool_messages: bool = False,
         similarity_threshold: float = 0.65,
         relevance_threshold: float = 0.40,
+        embedding_model: str | None = None,
+        summary_model: str | None = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
     ) -> None:
         self.max_messages = max_messages
         self.policy = policy
@@ -60,6 +66,12 @@ class History:
         self.similarity_threshold = similarity_threshold
         # 最舊群組與最新群組低於此值視為無關主題，直接丟棄
         self.relevance_threshold = relevance_threshold
+        # 向量分群用輕量 embedding 模型（見 defaults.embedding_model / local-embed）
+        self.embedding_model = embedding_model
+        # LLM 摘要用對話模型（可與 embedding 不同）
+        self.summary_model = summary_model
+        self.base_url = base_url
+        self.api_key = api_key
         self._storage: list[Message] = []
 
     def __len__(self) -> int:
@@ -108,21 +120,19 @@ class History:
         reply: str,
         *,
         trail: list[Message] | None = None,
-        chat_session: Chat | None = None,
     ) -> None:
         """追加一輪對話，並動態觸發歷史修剪政策。
 
         ``trail`` 為 MCP 本輪訊息（assistant / tool / 最終 assistant）；若提供則不再另建單則 assistant。
-        ``chat_session`` 供 ``SEGMENT_COMPRESS`` 回呼 embedding 與摘要 API。
         """
         self.append(user_msg)
         if trail:
             self.extend(trail)
         else:
             self.append({"role": "assistant", "content": reply})
-        self.maybe_trim(chat_session)
+        self.maybe_trim()
 
-    def maybe_trim(self, chat_session: Chat | None = None) -> None:
+    def maybe_trim(self) -> None:
         """檢查記憶長度上限並執行對應的裁剪或語意壓縮。
 
         可能多次迴圈，直到 ``turn_count() <= max_messages`` 或策略無法再縮減。
@@ -140,15 +150,11 @@ class History:
             elif self.policy == HistoryPolicy.SEGMENT_COMPRESS:
                 # SEGMENT_COMPRESS 三階降級（任一步成功則 turn_count 下降，while 可能再跑一輪）：
                 #
-                # 1) _segment_compress_by_vector：優先語意分群（需 chat_session、≥6 則訊息、embedding 可用）。
-                #    回傳 False 表示「本輪未壓縮」，例如：訊息太少、無 chat、embedding 失敗、
-                #    全歷史仍同一話題（groups<2）、熱記憶保護（不切最後 4 則）等。
-                #
-                # 2) _segment_compress_legacy：向量不可用或條件不足時，改用最舊 N 則固定視窗 + LLM 摘要（[摘要]）。
-                #
-                # 3) _drop_oldest_*：前兩者皆無法縮減時，最後降級為刪最舊一輪／一組，避免 while 無窮迴圈。
-                if not self._segment_compress_by_vector(chat_session):
-                    if not self._segment_compress_legacy(chat_session):
+                # 1) _segment_compress_by_vector：優先語意分群（需 embedding_model、≥6 則、API 可用）。
+                # 2) _segment_compress_legacy：改用最舊 N 則 + LLM 摘要（[摘要]）。
+                # 3) _drop_oldest_*：最後降級裁切，避免 while 無窮迴圈。
+                if not self._segment_compress_by_vector():
+                    if not self._segment_compress_legacy():
                         self._drop_oldest_turn() if self.include_tool_messages else self._drop_oldest_pair()
             else:
                 self._drop_oldest_turn() if self.include_tool_messages else self._drop_oldest_pair()
@@ -183,6 +189,29 @@ class History:
         _logger.info("【%s】壓縮後（共 %d 則）", action, len(after_storage))
         for index, msg in enumerate(after_storage):
             _logger.info("%s", self._format_message_line(index, msg))
+
+    def _get_embedding(self, text: str) -> list[float]:
+        """呼叫 ``core.client.embedding``（使用 ``embedding_model``，非對話模型）。"""
+        if not self.embedding_model:
+            raise ValueError("embedding_model 未設定，無法執行向量分群")
+        return embedding(
+            text=text,
+            model=self.embedding_model,
+            base_url=self.base_url,
+            api_key=self.api_key,
+        )
+
+    def _call_summary_api(self, text: str) -> str:
+        """呼叫 ``core.client.complete`` 產生歷史段落摘要。"""
+        if not self.summary_model:
+            raise ValueError("summary_model 未設定，無法執行 LLM 摘要壓縮")
+        return complete(
+            messages=[{"role": "user", "content": text}],
+            model=self.summary_model,
+            system=_SUMMARY_SYSTEM,
+            base_url=self.base_url,
+            api_key=self.api_key,
+        )
 
     def _drop_oldest_one(self) -> None:
         """刪除儲存列表最前端一則訊息。"""
@@ -225,12 +254,12 @@ class History:
         else:
             del self._storage[first_user:next_user]
 
-    def _segment_compress_legacy(self, chat: Chat | None) -> bool:
+    def _segment_compress_legacy(self) -> bool:
         """依固定視窗將最舊訊息壓成單則摘要（無需 embedding，相容 v1.1）。
 
         成功時以 ``[摘要]`` 前綴的 assistant 訊息取代視窗內原文。
         """
-        if not self._storage or chat is None:
+        if not self._storage or not self.summary_model:
             return False
         window = min(_LEGACY_SEGMENT_WINDOW, len(self._storage))
         if window < 1:
@@ -238,7 +267,7 @@ class History:
         segment = self._storage[:window]
         _logger.info("傳統視窗摘要：壓縮 %d 則訊息（無向量）", window)
         lines = [f"{m['role']}: {m['content']}" for m in segment]
-        summary = chat.call_summary_api("\n".join(lines))
+        summary = self._call_summary_api("\n".join(lines))
         compressed: Message = {
             "role": "assistant",
             "content": f"[摘要] {summary.strip()}",
@@ -252,7 +281,7 @@ class History:
         self._storage = after_storage
         return True
 
-    def _segment_compress_by_vector(self, chat: Chat | None) -> bool:
+    def _segment_compress_by_vector(self) -> bool:
         """基於時間序列向量距離的動態分群、摘要與冷熱清除。
 
         流程概要：
@@ -261,13 +290,13 @@ class History:
           3. 無關則直接刪除最舊群組；弱關聯則 LLM 摘要為 ``[前情摘要]``。
           4. 不切到最後 4 則「熱記憶」，避免壓縮進行中的對話。
         """
-        if len(self._storage) < 6 or chat is None:
+        if len(self._storage) < 6 or not self.embedding_model:
             return False
 
         try:
             # 僅對前 200 字做向量化，降低 embedding API 成本
             embeddings = [
-                chat.get_embedding(f"{msg['role']}: {str(msg.get('content', ''))[:200]}")
+                self._get_embedding(f"{msg['role']}: {str(msg.get('content', ''))[:200]}")
                 for msg in self._storage
             ]
         except Exception as exc:
@@ -325,7 +354,7 @@ class History:
                 cut_idx,
             )
             lines = [f"{msg['role']}: {msg['content']}" for msg in segment]
-            summary = chat.call_summary_api("\n".join(lines))
+            summary = self._call_summary_api("\n".join(lines))
             compressed: Message = {
                 "role": "assistant",
                 "content": f"[前情摘要] {summary.strip()}",

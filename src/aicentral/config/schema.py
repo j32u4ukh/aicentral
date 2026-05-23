@@ -74,6 +74,7 @@ class AICentralSettings(BaseModel):
 
 class DefaultsSettings(BaseModel):
     model: str | None = None
+    embedding_model: str | None = None
     timeout: float = 120.0
     structured_mode: str | None = None
 
