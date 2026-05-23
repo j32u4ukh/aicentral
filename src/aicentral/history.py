@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Iterable
 from enum import StrEnum
@@ -19,8 +20,12 @@ from aicentral.core.types import Message
 if TYPE_CHECKING:
     from aicentral.chat import Chat
 
+_logger = logging.getLogger(__name__)
+
 # 傳統摘要壓縮（無 embedding）時，一次處理的最舊訊息數上限
 _LEGACY_SEGMENT_WINDOW = 5
+# 壓縮日誌中單則 content 預覽字元上限
+_LOG_CONTENT_WIDTH = 120
 
 
 class HistoryPolicy(StrEnum):
@@ -133,12 +138,51 @@ class History:
             elif self.policy == HistoryPolicy.DROP_OLDEST_PAIR:
                 self._drop_oldest_turn() if self.include_tool_messages else self._drop_oldest_pair()
             elif self.policy == HistoryPolicy.SEGMENT_COMPRESS:
-                # 向量分群 → 傳統視窗摘要 → 固定裁切，避免無窮迴圈
+                # SEGMENT_COMPRESS 三階降級（任一步成功則 turn_count 下降，while 可能再跑一輪）：
+                #
+                # 1) _segment_compress_by_vector：優先語意分群（需 chat_session、≥6 則訊息、embedding 可用）。
+                #    回傳 False 表示「本輪未壓縮」，例如：訊息太少、無 chat、embedding 失敗、
+                #    全歷史仍同一話題（groups<2）、熱記憶保護（不切最後 4 則）等。
+                #
+                # 2) _segment_compress_legacy：向量不可用或條件不足時，改用最舊 N 則固定視窗 + LLM 摘要（[摘要]）。
+                #
+                # 3) _drop_oldest_*：前兩者皆無法縮減時，最後降級為刪最舊一輪／一組，避免 while 無窮迴圈。
                 if not self._segment_compress_by_vector(chat_session):
                     if not self._segment_compress_legacy(chat_session):
                         self._drop_oldest_turn() if self.include_tool_messages else self._drop_oldest_pair()
             else:
                 self._drop_oldest_turn() if self.include_tool_messages else self._drop_oldest_pair()
+
+    @staticmethod
+    def _content_preview(content: Any, *, width: int = _LOG_CONTENT_WIDTH) -> str:
+        text = str(content).replace("\n", " ")
+        if len(text) <= width:
+            return text
+        return text[: width - 3] + "..."
+
+    @classmethod
+    def _format_message_line(cls, index: int, msg: Message) -> str:
+        role = msg.get("role", "?")
+        extra = ""
+        if role == "assistant" and msg.get("tool_calls"):
+            extra = " [tool_calls]"
+        preview = cls._content_preview(msg.get("content", ""))
+        return f"  [{index:02d}] {role}{extra}: {preview}"
+
+    def _log_compress_snapshot(
+        self,
+        *,
+        action: str,
+        before_segment: list[Message],
+        after_storage: list[Message],
+    ) -> None:
+        """輸出壓縮／清除前後的訊息內容，供除錯與示範腳本對照。"""
+        _logger.info("【%s】壓縮前（共 %d 則將處理）", action, len(before_segment))
+        for index, msg in enumerate(before_segment):
+            _logger.info("%s", self._format_message_line(index, msg))
+        _logger.info("【%s】壓縮後（共 %d 則）", action, len(after_storage))
+        for index, msg in enumerate(after_storage):
+            _logger.info("%s", self._format_message_line(index, msg))
 
     def _drop_oldest_one(self) -> None:
         """刪除儲存列表最前端一則訊息。"""
@@ -192,13 +236,20 @@ class History:
         if window < 1:
             return False
         segment = self._storage[:window]
+        _logger.info("傳統視窗摘要：壓縮 %d 則訊息（無向量）", window)
         lines = [f"{m['role']}: {m['content']}" for m in segment]
         summary = chat.call_summary_api("\n".join(lines))
         compressed: Message = {
             "role": "assistant",
             "content": f"[摘要] {summary.strip()}",
         }
-        self._storage = [compressed, *self._storage[window:]]
+        after_storage = [compressed, *self._storage[window:]]
+        self._log_compress_snapshot(
+            action="傳統視窗摘要",
+            before_segment=segment,
+            after_storage=after_storage,
+        )
+        self._storage = after_storage
         return True
 
     def _segment_compress_by_vector(self, chat: Chat | None) -> bool:
@@ -220,7 +271,7 @@ class History:
                 for msg in self._storage
             ]
         except Exception as exc:
-            print(f"[Embedding Error] 語意分群失敗 ({exc})，改用傳統摘要。")
+            _logger.warning("語意分群獲取向量失敗 (%s)，改用傳統摘要。", exc)
             return False
 
         # 線上串流時間序列分群：groups 內為 (訊息索引, 向量)
@@ -250,27 +301,42 @@ class History:
         if cut_idx > len(self._storage) - 4:
             return False
 
+        segment = self._storage[:cut_idx]
         if core_sim < self.relevance_threshold:
             # 冷記憶：舊主題與當前話題無關 → 直接物理刪除
-            print(
-                f"♻️ [Memory Tiering] 舊主題與當前無關 (相似度: {core_sim:.2f})，"
-                f"清除前 {cut_idx} 條。"
+            _logger.info(
+                "向量冷清除：舊主題與當前無關 (相似度=%.2f < %.2f)，移除前 %d 則",
+                core_sim,
+                self.relevance_threshold,
+                cut_idx,
             )
-            self._storage = self._storage[cut_idx:]
+            after_storage = self._storage[cut_idx:]
+            self._log_compress_snapshot(
+                action="向量冷清除",
+                before_segment=segment,
+                after_storage=after_storage,
+            )
+            self._storage = after_storage
         else:
             # 溫記憶：仍有弱關聯 → 打包 LLM 摘要
-            print(
-                f"📦 [Memory Tiering] 舊主題弱關聯 (相似度: {core_sim:.2f})，"
-                f"壓縮前 {cut_idx} 條。"
+            _logger.info(
+                "向量溫壓縮：舊主題弱關聯 (相似度=%.2f)，LLM 摘要前 %d 則",
+                core_sim,
+                cut_idx,
             )
-            segment = self._storage[:cut_idx]
             lines = [f"{msg['role']}: {msg['content']}" for msg in segment]
             summary = chat.call_summary_api("\n".join(lines))
             compressed: Message = {
                 "role": "assistant",
                 "content": f"[前情摘要] {summary.strip()}",
             }
-            self._storage = [compressed, *self._storage[cut_idx:]]
+            after_storage = [compressed, *self._storage[cut_idx:]]
+            self._log_compress_snapshot(
+                action="向量溫壓縮",
+                before_segment=segment,
+                after_storage=after_storage,
+            )
+            self._storage = after_storage
         return True
 
     @staticmethod
