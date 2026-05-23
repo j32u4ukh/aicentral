@@ -87,6 +87,77 @@ def test_complete_mcp_one_round(
 @patch("aicentral.mcp.orchestrator.invoke_resolved")
 @patch("aicentral.mcp.orchestrator.resolve_fallback_chain")
 @patch("aicentral.mcp.orchestrator.get_config")
+def test_complete_mcp_return_message_trail(
+    mock_get_config: MagicMock,
+    mock_chain: MagicMock,
+    mock_invoke: MagicMock,
+) -> None:
+    mock_get_config.return_value = _cfg()
+    mock_chain.return_value = [MagicMock(model_label="test")]
+
+    tool_call_raw = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "demo__search",
+                                "arguments": '{"q": "x"}',
+                            },
+                        }
+                    ],
+                }
+            }
+        ]
+    }
+    final_raw = {
+        "choices": [{"message": {"role": "assistant", "content": "完成"}}],
+    }
+    mock_invoke.side_effect = [tool_call_raw, final_raw]
+
+    mgr = MCPManager(_cfg())
+    with patch.object(
+        mgr,
+        "list_tools",
+        return_value=[
+            {
+                "name": "demo__search",
+                "description": "d",
+                "inputSchema": {},
+                "mcp_server": "demo",
+            }
+        ],
+    ):
+        with patch.object(mgr, "call_tool", return_value="tool-result"):
+            with patch(
+                "aicentral.mcp.orchestrator.MCPManager.from_config",
+                return_value=mgr,
+            ):
+                result = complete(
+                    [{"role": "user", "content": "查資料"}],
+                    mcp_servers=["demo"],
+                    return_message_trail=True,
+                )
+
+    assert isinstance(result, tuple)
+    reply, trail = result
+    assert reply == "完成"
+    assert len(trail) == 3
+    assert trail[0].get("tool_calls")
+    assert trail[1]["role"] == "tool"
+    assert trail[1]["tool_call_id"] == "call_1"
+    assert trail[2]["role"] == "assistant"
+    assert trail[2]["content"] == "完成"
+
+
+@patch("aicentral.mcp.orchestrator.invoke_resolved")
+@patch("aicentral.mcp.orchestrator.resolve_fallback_chain")
+@patch("aicentral.mcp.orchestrator.get_config")
 def test_complete_mcp_error_no_provider_fallback(
     mock_get_config: MagicMock,
     mock_chain: MagicMock,

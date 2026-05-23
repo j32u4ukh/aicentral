@@ -102,6 +102,7 @@ def complete(
         extra = dict(kwargs)
         mcp_servers = extra.pop("mcp_servers", None)
         max_tool_rounds = int(extra.pop("max_tool_rounds", 5))
+        return_message_trail = bool(extra.pop("return_message_trail", False))
         if base_url is not None:
             extra["base_url"] = base_url
         if api_key is not None:
@@ -114,6 +115,7 @@ def complete(
                 model,
                 mcp_servers=mcp_servers,
                 max_tool_rounds=max_tool_rounds,
+                return_message_trail=return_message_trail,
                 **extra,
             )
         if stream:
@@ -133,7 +135,7 @@ def complete(
         raise
     except ValueError as exc:
         msg = str(exc)
-        if "mcp_servers" in msg or "max_tool_rounds" in msg:
+        if "mcp_servers" in msg or "max_tool_rounds" in msg or "return_message_trail" in msg:
             raise
         err = ProviderError(msg)
         dev_print_exception(err, context="complete() model 解析失敗")

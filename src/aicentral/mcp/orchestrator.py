@@ -194,6 +194,19 @@ def serialize_tool_result(result: Any) -> str:
         return str(result)
 
 
+def _trail_from_conversation(
+    conversation: list[dict[str, Any]],
+    *,
+    start: int,
+    final_assistant: dict[str, Any] | None = None,
+) -> list[Message]:
+    """本輪 MCP loop 新增訊息（不含輸入 messages）；最終 assistant 由 loop 結束時補上。"""
+    trail: list[Message] = [dict(m) for m in conversation[start:]]  # type: ignore[misc]
+    if final_assistant is not None:
+        trail.append(dict(final_assistant))  # type: ignore[arg-type]
+    return trail
+
+
 def complete_with_mcp_loop(
     messages: list[Message],
     model: str | None,
@@ -202,12 +215,16 @@ def complete_with_mcp_loop(
     max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS,
     mcp_manager: MCPManager | None = None,
     config: AICentralConfig | None = None,
+    return_message_trail: bool = False,
     **kwargs: Any,
-) -> str:
+) -> str | tuple[str, list[Message]]:
     """
     帶 MCP 的非串流 complete：自動重複「問模型 → 執行工具 → 再問模型」。
 
     ``MCPError`` 直接拋出；``ProviderError`` 仍可依 yaml ``router.fallbacks`` 換 model。
+
+    ``return_message_trail=True`` 時回傳 ``(最終文字, 本輪 trail)``；
+    trail 含 assistant（含 tool_calls）、``role: tool`` 與最終 assistant，供 ``Chat`` 寫入歷史。
     """
     if max_tool_rounds < 1:
         raise ValueError("max_tool_rounds 須 >= 1")
@@ -229,6 +246,7 @@ def complete_with_mcp_loop(
     tools = merge_openai_tools(mcp_openai, user_tools)
     chain = resolve_fallback_chain(model, config=cfg)
     conversation: list[dict[str, Any]] = [dict(m) for m in messages]
+    trail_start = len(conversation)
     attempted: list[str] = []
     last_provider_exc: ProviderError | None = None
 
@@ -264,7 +282,14 @@ def complete_with_mcp_loop(
             content = assistant.get("content")
             if content is None:
                 raise ProviderError("模型回應無 content 且無 tool_calls")
-            return str(content)
+            text = str(content)
+            if return_message_trail:
+                return text, _trail_from_conversation(
+                    conversation,
+                    start=trail_start,
+                    final_assistant=assistant,
+                )
+            return text
 
         conversation.append(assistant)
         tool_messages = run_tool_calls(
