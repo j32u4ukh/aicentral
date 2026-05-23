@@ -24,7 +24,7 @@ def test_set_mode_keep_history(mock_complete: MagicMock) -> None:
     chat.complete("stored")
     chat.set_mode(ChatMode.STATELESS, clear_on_stateless=False)
     assert chat.messages == []
-    assert len(chat._history) == 2
+    assert len(chat.history) == 2
     chat.set_mode(ChatMode.STATEFUL)
     assert len(chat.messages) == 2
 

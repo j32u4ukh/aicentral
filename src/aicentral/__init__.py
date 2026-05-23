@@ -1,8 +1,9 @@
 """aicentral — AI capability library for other projects (LLM routing + structured outputs)."""
 
 from aicentral.chat import Chat, ChatMode, HistoryPolicy
+from aicentral.history import History
 from aicentral.config import get_config, load_config
-from aicentral.core.client import complete, complete_structured
+from aicentral.core.client import complete, complete_structured, embedding
 from aicentral.core.errors import (
     AICentralError,
     HistoryOverflowError,
@@ -31,7 +32,9 @@ __all__ = [
     "Chat",
     "ChatMode",
     "ChatResponse",
+    "History",
     "HistoryPolicy",
+    "embedding",
     "Message",
     "ParsedModel",
     "Role",

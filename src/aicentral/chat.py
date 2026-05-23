@@ -1,12 +1,13 @@
 """
-Chat 工作階段：有狀態 / 無狀態多輪對話、歷史修剪與串流（v1.1）。
+Chat 工作階段：有狀態 / 無狀態多輪對話、歷史修剪與串流（v1.2）。
+
+職責分工：
+  - 本模組：組裝請求、委派 ``complete()`` / ``complete_structured()``、模式切換。
+  - ``History``（``aicentral.history``）：儲存、裁剪、向量分群與摘要壓縮。
 
 串流與歷史寫入（有狀態）：
-  complete(stream=True) 回傳迭代器，呼叫方每 consume 一個 delta 就收到一段文字；
-  底層 SSE 有封包即 yield，不會等全文收齊才開始輸出。
-  歷史寫入發生在迭代器**耗盡之後**：_complete_stateful_stream._iter 的 for 迴圈結束時
-  呼叫 _record_turn，將 user 與拼接後的完整 assistant 寫入 _history。
-  若中途例外或呼叫方提前停止迭代，_record_turn 不會執行，該輪不會進入歷史。
+  ``complete(stream=True)`` 回傳迭代器，呼叫方每 consume 一個 delta 即收到一段文字。
+  歷史寫入發生在迭代器**耗盡之後**；若中途例外或提前停止迭代，該輪不會進入 ``history``。
 """
 
 from __future__ import annotations
@@ -17,35 +18,33 @@ from typing import Any, TypeVar, overload
 
 from pydantic import BaseModel
 
-from aicentral.core.client import complete, complete_structured
-from aicentral.core.errors import HistoryOverflowError
+from aicentral.core.client import complete, complete_structured, embedding
 from aicentral.core.types import Message
+from aicentral.history import History, HistoryPolicy
 
+# 向後相容：歷史政策仍可由 ``from aicentral.chat import HistoryPolicy`` 匯入
+__all__ = ["Chat", "ChatMode", "HistoryPolicy"]
 
-class ChatMode(StrEnum):
-    STATEFUL = "stateful"
-    STATELESS = "stateless"
-
-
-class HistoryPolicy(StrEnum):
-    DROP_OLDEST = "drop_oldest"
-    DROP_OLDEST_PAIR = "drop_oldest_pair"
-    SEGMENT_COMPRESS = "segment_compress"
-    MANUAL = "manual"
-
-
-T = TypeVar("T", bound=BaseModel)
-
-_SEGMENT_WINDOW = 5
+# 供 History 透過 call_summary_api 回呼時使用的系統提示
 _SUMMARY_SYSTEM = (
     "將以下對話摘要為一段繁體中文，保留事實與決策，刪除贅詞。只輸出摘要正文。"
 )
 
 
+class ChatMode(StrEnum):
+    """對話是否累積歷史。"""
+
+    STATEFUL = "stateful"
+    STATELESS = "stateless"
+
+
+T = TypeVar("T", bound=BaseModel)
+
+
 class Chat:
     """可切換有狀態 / 無狀態的聊天工作階段。
 
-    有狀態時，多輪紀錄保存在 ``_history``（預設僅 user/assistant，不含 system）。
+    有狀態時，多輪紀錄由 ``history`` 管理（預設僅 user/assistant，不含 system）。
     ``include_tool_messages_in_history=True`` 且啟用 MCP 時，每輪另寫入
     assistant（含 tool_calls）、``role: tool`` 與最終 assistant。
     system 由 ``complete()`` 在每次請求時透過參數或環境變數注入，不計入 ``max_messages``。
@@ -68,22 +67,25 @@ class Chat:
         self._mode = mode
         self._system = system
         self._model = model
-        self._max_messages = max_messages
-        self._history_policy = history_policy
         self._base_url = base_url
         self._api_key = api_key
         self._mcp_servers = mcp_servers
         self._max_tool_rounds = max_tool_rounds
-        self._include_tool_messages_in_history = include_tool_messages_in_history
-        # 有狀態模式下的對話歷史；串流與非串流皆在 _record_turn 寫入此列表
-        self._history: list[Message] = []
+        # 記憶體管理解耦：裁剪政策與儲存皆在 History 內完成
+        self.history = History(
+            max_messages=max_messages,
+            policy=history_policy,
+            include_tool_messages=include_tool_messages_in_history,
+        )
 
     @classmethod
     def stateful(cls, **kwargs: Any) -> Chat:
+        """建立有狀態工作階段（預設會累積 ``history``）。"""
         return cls(mode=ChatMode.STATEFUL, **kwargs)
 
     @classmethod
     def stateless(cls, **kwargs: Any) -> Chat:
+        """建立無狀態工作階段（不寫入 ``history``，可搭配 ``context`` 傳入前情）。"""
         return cls(mode=ChatMode.STATELESS, **kwargs)
 
     @classmethod
@@ -108,14 +110,36 @@ class Chat:
 
     @property
     def messages(self) -> list[Message]:
+        """返回當前歷史快照；無狀態模式一律回傳空列表。"""
         if self._mode == ChatMode.STATELESS:
             return []
-        return list(self._history)
+        return self.history.messages
 
     def set_mode(self, mode: ChatMode, *, clear_on_stateless: bool = True) -> None:
+        """切換模式；預設切到無狀態時會 ``clear()`` 歷史。"""
         self._mode = mode
         if mode == ChatMode.STATELESS and clear_on_stateless:
             self.clear()
+
+    def clear(self) -> None:
+        """清空 ``history`` 內所有訊息。"""
+        self.history.clear()
+
+    def delete(self, indices: Iterable[int]) -> None:
+        """依索引刪除歷史訊息（僅有狀態有效）。"""
+        if self._mode != ChatMode.STATEFUL:
+            return
+        self.history.delete(indices)
+
+    def trim(self, *, keep_last: int) -> None:
+        """保留最後 N 則原始訊息（依 ``turn_count`` 語意，見 ``History.trim``）。"""
+        if self._mode != ChatMode.STATEFUL:
+            return
+        self.history.trim(keep_last)
+
+    def _turn_count(self) -> int:
+        """有效對話輪數（供測試與內部檢查；委派 ``history.turn_count``）。"""
+        return self.history.turn_count()
 
     @overload
     def complete(
@@ -149,54 +173,42 @@ class Chat:
         context: list[Message] | None = None,
         **kwargs: Any,
     ) -> str | Iterator[str]:
-        """完成一輪對話：組裝訊息、委派 ``complete()``，有狀態時寫入 ``_history``。
+        """完成一輪對話：組裝訊息、委派 ``complete()``，有狀態時寫入 ``history``。
 
-        - **無狀態**：不累積 ``_history``；串流回傳底層迭代器。
-        - **有狀態 + 串流**：包裝迭代器，全文收齊後才 ``_record_turn``（見 ``_complete_stateful_stream``）。
+        - **無狀態**：不累積歷史；串流回傳底層迭代器。
+        - **有狀態 + 串流**：包裝迭代器，全文收齊後才 ``record_turn``（見 ``_complete_stateful_stream``）。
         - **有狀態 + 非串流**：取得回覆後寫入歷史；MCP 且 ``include_tool_messages_in_history``
           時可能收到 ``(reply, trail)`` 並一併寫入 tool 軌跡。
         """
-        # 本輪 user 訊息，並與既有 _history（或 stateless 的 context）合併成送 API 的列表
+        # 組裝本輪 user 訊息，並與 history 或 stateless context 合併
         user_msg: Message = {"role": "user", "content": user_input}
-        request_messages = self._build_request_messages(
-            user_msg, context=context)
-
-        # MCP 相關參數（mcp_servers、max_tool_rounds、return_message_trail 等）
+        request_messages = self._build_request_messages(user_msg, context=context)
         mcp_kw = self._mcp_complete_kwargs()
 
-        # MCP tool loop 不支援串流；在組裝請求後、呼叫底層前檢查
+        # MCP tool loop 不支援串流；在呼叫底層前檢查
         if self._mcp_servers is not None and stream:
             raise ValueError(
-                "Chat.complete(stream=True) 不支援 mcp_servers；請使用 stream=False")
+                "Chat.complete(stream=True) 不支援 mcp_servers；請使用 stream=False"
+            )
 
+        # 無狀態：不寫入 history，直接轉發底層 complete
         if self._mode == ChatMode.STATELESS:
-            # 無狀態：不寫入 _history；直接轉發 complete（串流或非串流）
-            if stream:
-                return complete(
-                    messages=request_messages,
-                    model=self._model,
-                    system=self._system,
-                    base_url=self._base_url,
-                    api_key=self._api_key,
-                    stream=True,
-                    **mcp_kw,
-                    **kwargs,
-                )
             return complete(
                 messages=request_messages,
                 model=self._model,
                 system=self._system,
                 base_url=self._base_url,
                 api_key=self._api_key,
+                stream=stream,
                 **mcp_kw,
                 **kwargs,
             )
 
+        # 有狀態 + 串流：回傳包裝迭代器，歷史在迭代結束後寫入
         if stream:
-            # 有狀態串流：回傳包裝迭代器，歷史在迭代結束後寫入（見 _complete_stateful_stream）
             return self._complete_stateful_stream(user_msg, request_messages, **kwargs)
 
-        # 有狀態、非串流：呼叫底層取得全文（或 MCP trail）
+        # 有狀態 + 非串流：呼叫底層取得全文（或 MCP trail）
         result = complete(
             messages=request_messages,
             model=self._model,
@@ -207,15 +219,15 @@ class Chat:
             **kwargs,
         )
 
-        # 解析回傳：一般為 str；MCP + include_tool_messages_in_history 時為 (reply, trail)
+        # 解析回傳：一般為 str；MCP + include_tool_messages 時為 (reply, trail)
         trail: list[Message] | None = None
         if isinstance(result, tuple):
             reply, trail = result
         else:
             reply = result
 
-        # 寫入 _history（trail 含 assistant/tool_calls、tool、最終 assistant）並依 policy 修剪
-        self._record_turn(user_msg, reply, trail=trail)
+        # 寫入 history 並依 policy 修剪（傳入 self 供 SEGMENT_COMPRESS 回呼 embedding / 摘要）
+        self.history.record_turn(user_msg, reply, trail=trail, chat_session=self)
         return reply
 
     def complete_structured(
@@ -226,13 +238,12 @@ class Chat:
         context: list[Message] | None = None,
         **kwargs: Any,
     ) -> T:
-        """結構化完成一輪：只需傳入使用者文字，由函式庫處理 schema / tools / 驗證。
+        """結構化完成一輪：由函式庫處理 schema / tools / 驗證。
 
         有狀態時成功後將 ``response_model`` 的 JSON 寫入歷史。
         """
         user_msg: Message = {"role": "user", "content": user_input}
-        request_messages = self._build_request_messages(
-            user_msg, context=context)
+        request_messages = self._build_request_messages(user_msg, context=context)
         result = complete_structured(
             messages=request_messages,
             response_model=response_model,
@@ -243,17 +254,45 @@ class Chat:
             **kwargs,
         )
         if self._mode == ChatMode.STATEFUL:
-            self._record_turn(user_msg, result.model_dump_json())
+            self.history.record_turn(
+                user_msg,
+                result.model_dump_json(),
+                chat_session=self,
+            )
         return result
 
+    # ==========================================
+    # History 回呼介面（SEGMENT_COMPRESS 向量分群與 LLM 摘要）
+    # ==========================================
+    def get_embedding(self, text: str) -> list[float]:
+        """封裝核心 Embedding 呼叫，供 ``History._segment_compress_by_vector`` 計算語意距離。"""
+        return embedding(
+            text=text,
+            model=self._model,
+            base_url=self._base_url,
+            api_key=self._api_key,
+        )
+
+    def call_summary_api(self, text: str) -> str:
+        """封裝摘要 LLM 呼叫，供 ``History`` 將舊主題段落壓成單則前情摘要。"""
+        return complete(
+            messages=[{"role": "user", "content": text}],
+            model=self._model,
+            system=_SUMMARY_SYSTEM,
+            base_url=self._base_url,
+            api_key=self._api_key,
+        )
+
     def _mcp_complete_kwargs(self) -> dict[str, Any]:
+        """組裝傳給底層 ``complete()`` 的 MCP 參數。"""
         if self._mcp_servers is None:
             return {}
         kw: dict[str, Any] = {
             "mcp_servers": self._mcp_servers,
             "max_tool_rounds": self._max_tool_rounds,
         }
-        if self._include_tool_messages_in_history:
+        # 需在歷史保留 tool 軌跡時，要求 orchestrator 回傳 trail
+        if self.history.include_tool_messages:
             kw["return_message_trail"] = True
         return kw
 
@@ -263,10 +302,11 @@ class Chat:
         *,
         context: list[Message] | None,
     ) -> list[Message]:
+        """合併本輪 user 與前情，產生送 API 的 messages 列表。"""
         if self._mode == ChatMode.STATELESS:
             prefix = list(context) if context else []
             return [*prefix, user_msg]
-        return [*self._history, user_msg]
+        return [*self.history.messages, user_msg]
 
     def _complete_stateful_stream(
         self,
@@ -274,7 +314,7 @@ class Chat:
         request_messages: list[Message],
         **kwargs: Any,
     ) -> Iterator[str]:
-        """有狀態串流：邊收 SSE delta 邊 yield；全文收齊後才寫入 _history。"""
+        """有狀態串流：邊收 SSE delta 邊 yield；全文收齊後才寫入 history。"""
         stream = complete(
             messages=request_messages,
             model=self._model,
@@ -291,172 +331,7 @@ class Chat:
             for delta in stream:
                 chunks.append(delta)
                 yield delta
-            # ★ 串流跑完、迭代器耗盡後，在此將本輪寫回歷史（非逐 delta 寫入）
-            self._record_turn(user_msg, "".join(chunks))
+            # 串流耗盡後才 record_turn；中途例外則不會執行到此
+            self.history.record_turn(user_msg, "".join(chunks), chat_session=self)
 
         return _iter()
-
-    def _record_turn(
-        self,
-        user_msg: Message,
-        reply: str,
-        *,
-        trail: list[Message] | None = None,
-    ) -> None:
-        """將一輪對話追加至 ``_history``，並依 policy 修剪。
-
-        ``trail`` 為 MCP 本輪訊息（assistant / tool / 最終 assistant）；若提供則不再另建單則 assistant。
-        """
-        self._history.append(user_msg)
-        if trail:
-            self._history.extend(trail)
-        else:
-            self._history.append({"role": "assistant", "content": reply})
-        self._maybe_trim_history()
-
-    def clear(self) -> None:
-        self._history.clear()
-
-    def delete(self, indices: Iterable[int]) -> None:
-        if self._mode != ChatMode.STATEFUL:
-            return
-        for index in sorted(set(indices), reverse=True):
-            if 0 <= index < len(self._history):
-                del self._history[index]
-
-    def trim(self, *, keep_last: int) -> None:
-        if self._mode != ChatMode.STATEFUL or keep_last < 0:
-            return
-        if keep_last == 0:
-            self.clear()
-            return
-        if self._turn_count() <= keep_last:
-            return
-        self._history = self._history[-keep_last:]
-
-    def _turn_count(self) -> int:
-        if self._include_tool_messages_in_history:
-            return sum(1 for message in self._history if message["role"] == "user")
-        return sum(1 for message in self._history if message["role"] in ("user", "assistant"))
-
-    def _maybe_trim_history(self) -> None:
-        """
-        檢查聊天歷史記錄的數量是否超過最大限制，並根據歷史政策進行清理。
-        """
-        while self._turn_count() > self._max_messages:
-            if self._history_policy == HistoryPolicy.MANUAL:
-                # 如果策略是手動管理，則拋出溢出錯誤，要求使用者手動處理。
-                raise HistoryOverflowError(
-                    f"歷史訊息數 {self._turn_count()} 超過上限 {self._max_messages}；"
-                    "請使用 delete()、trim() 或更換 history_policy。"
-                )
-            if self._history_policy == HistoryPolicy.DROP_OLDEST:
-                if self._include_tool_messages_in_history:
-                    self._drop_oldest_turn()
-                else:
-                    self._drop_oldest_one()
-            elif self._history_policy == HistoryPolicy.DROP_OLDEST_PAIR:
-                if self._include_tool_messages_in_history:
-                    self._drop_oldest_turn()
-                else:
-                    self._drop_oldest_pair()
-            elif self._history_policy == HistoryPolicy.SEGMENT_COMPRESS:
-                if not self._segment_compress():
-                    if self._include_tool_messages_in_history:
-                        self._drop_oldest_turn()
-                    else:
-                        self._drop_oldest_pair()
-            else:
-                if self._include_tool_messages_in_history:
-                    self._drop_oldest_turn()
-                else:
-                    self._drop_oldest_pair()
-
-    def _drop_oldest_one(self) -> None:
-        if self._history:
-            self._history.pop(0)
-
-    def _drop_oldest_turn(self) -> None:
-        """移除最舊一輪（自第一則 user 至下一則 user 之前），含 MCP tool 訊息。"""
-        if not self._history:
-            return
-        first_user = next(
-            (index for index, message in enumerate(self._history) if message["role"] == "user"),
-            None,
-        )
-        if first_user is None:
-            self._history.pop(0)
-            return
-        next_user = next(
-            (
-                index
-                for index, message in enumerate(self._history)
-                if index > first_user and message["role"] == "user"
-            ),
-            None,
-        )
-        if next_user is None:
-            del self._history[first_user:]
-        else:
-            del self._history[first_user:next_user]
-
-    def _drop_oldest_pair(self) -> None:
-        if not self._history:
-            return
-        first_user = next(
-            (index for index, message in enumerate(
-                self._history) if message["role"] == "user"),
-            None,
-        )
-        if first_user is None:
-            self._history.pop(0)
-            return
-        end = first_user + 1
-        if end < len(self._history) and self._history[end]["role"] == "assistant":
-            end += 1
-        del self._history[first_user:end]
-
-    def _segment_compress(self) -> bool:
-        """
-        對歷史訊息進行分段和摘要壓縮。
-        """
-        # 如果歷史記錄為空，則無法進行壓縮。
-        if not self._history:
-            return False
-
-        # 計算要壓縮的視窗大小，取歷史記錄長度和分段窗口大小的最小值。
-        window = min(_SEGMENT_WINDOW, len(self._history))
-
-        if window < 1:
-            # 如果視窗大小小於 1，則無法進行有效的分段。
-            return False
-
-        # 提取視窗內的歷史訊息作為要壓縮的內容。
-        segment = self._history[:window]
-
-        # TODO: 建議將邏輯修改為壓縮與當前訊息相關的**相近內容**，而不是僅壓縮最舊的 N 個訊息。
-        # 當前實作僅壓縮最舊的 'window' 條訊息。
-
-        # 將分段的訊息轉換為字串列表，用於送入模型進行摘要。
-        lines = [
-            f"{message['role']}: {message['content']}" for message in segment]
-
-        # 使用模型對這些訊息生成摘要。
-        summary = complete(
-            messages=[{"role": "user", "content": "\n".join(lines)}],
-            model=self._model,
-            system=_SUMMARY_SYSTEM,
-            base_url=self._base_url,
-            api_key=self._api_key,
-        )
-
-        # 創建一個包含摘要的新的訊息，作為壓縮的結果。
-        compressed: Message = {
-            "role": "assistant",
-            "content": f"[摘要] {summary.strip()}",
-        }
-
-        # 更新歷史記錄：用新的摘要訊息替換了最舊的 segment，並保留剩餘的歷史記錄。
-        self._history = [compressed, *self._history[window:]]
-
-        return True

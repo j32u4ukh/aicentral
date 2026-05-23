@@ -109,6 +109,8 @@ tests/                   # core、providers、routing、structured、mcp、gatew
 |------------|------|
 | [`aicentral-chat`](../../aicentral-chat) | 終端對話：`chat.py`（`Chat`）、`chat_http.py`（Proxy） |
 | [`aicentral-mcp`](../../aicentral-mcp) | **MCP 專用**：Import（`Chat.with_mcp`）與 HTTP（`/v1/mcp/*`）兩套範例 |
+| [`unity-mcp`](../../unity-mcp) | **Unity MCP**：執行期註冊 server；`build_goals.yaml` + LangGraph 依序建構（`unity-mcp-build`） |
+| [`aicentral-agent`](../../aicentral-agent) | **LangGraph**：`ChatAicentral` 適配器 + 圖／ReAct 編排，LLM 經 aicentral |
 
 **禁止**在消費方直接 `httpx` 打 Ollama 或繞過 aicentral 的路由／設定。
 

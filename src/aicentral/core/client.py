@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any, Literal, TypeVar, overload
 
+import httpx
 from pydantic import BaseModel, ValidationError
 
 from aicentral.config import get_config
@@ -23,7 +24,12 @@ from aicentral.core.errors import (
 from aicentral.core.types import Message, as_messages
 from aicentral.mcp.manager import MCPError
 from aicentral.mcp.orchestrator import complete_with_mcp_loop
-from aicentral.routing.router import complete_with_fallback, invoke_resolved, resolve_fallback_chain
+from aicentral.routing.router import (
+    complete_with_fallback,
+    invoke_resolved,
+    resolve_call,
+    resolve_fallback_chain,
+)
 from aicentral.structured.debug import summarize_assistant_message
 from aicentral.structured.extract import ExtractMode, from_chat_completion
 from aicentral.structured.prompt import with_structured_hint
@@ -263,3 +269,75 @@ def complete_structured(
         if is_dev_mode():
             dev_print_exception(error, context="結構化：驗證失敗")
         raise error
+
+
+def _embeddings_endpoint(base_url: str) -> str:
+    base = base_url.rstrip("/")
+    if base.endswith("/v1"):
+        return f"{base}/embeddings"
+    return f"{base}/v1/embeddings"
+
+
+def embedding(
+    text: str,
+    model: str | None = None,
+    *,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    timeout: float | None = None,
+    **kwargs: Any,
+) -> list[float]:
+    """呼叫 OpenAI 相容 ``/v1/embeddings``，回傳向量。"""
+    resolved = resolve_call(model)
+    endpoint_base = base_url or resolved.base_url
+    if not endpoint_base:
+        raise ProviderError("embedding 需要 base_url（參數或設定檔）", failure_kind="config")
+
+    key = api_key if api_key is not None else resolved.api_key
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+
+    payload: dict[str, Any] = {
+        "model": resolved.model_id,
+        "input": text,
+        **kwargs,
+    }
+    endpoint = _embeddings_endpoint(endpoint_base)
+    request_timeout = timeout if timeout is not None else resolved.timeout
+
+    try:
+        with httpx.Client(timeout=request_timeout) as client:
+            response = client.post(endpoint, json=payload, headers=headers)
+    except httpx.TimeoutException as exc:
+        raise ProviderError(
+            f"Embedding 端點請求逾時 {endpoint}: {exc}",
+            failure_kind="timeout",
+        ) from exc
+    except httpx.RequestError as exc:
+        raise ProviderError(
+            f"無法連線至 Embedding 端點 {endpoint}: {exc}",
+            failure_kind="connection_error",
+        ) from exc
+
+    if response.status_code >= 400:
+        detail = response.text.strip() or response.reason_phrase
+        raise ProviderError(
+            f"Embedding 端點回傳錯誤 {response.status_code}: {detail}",
+            status_code=response.status_code,
+            failure_kind="http",
+        )
+
+    data = response.json()
+    if isinstance(data, dict) and "data" in data:
+        items = data["data"]
+        if items and isinstance(items[0], dict) and "embedding" in items[0]:
+            vec = items[0]["embedding"]
+            if isinstance(vec, list):
+                return [float(x) for x in vec]
+    if isinstance(data, dict) and "embedding" in data:
+        vec = data["embedding"]
+        if isinstance(vec, list):
+            return [float(x) for x in vec]
+
+    raise ProviderError(f"無法解析 Embedding 回應: {data!r}")

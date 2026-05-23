@@ -114,12 +114,14 @@ def test_chat_mcp_trail_second_turn_includes_prior_tools(
                 include_tool_messages_in_history=True,
                 system="",
             )
-            chat._history = [
-                {"role": "user", "content": "第一輪"},
-                {"role": "assistant", "tool_calls": [{"id": "c1"}]},
-                {"role": "tool", "tool_call_id": "c1", "content": "x"},
-                {"role": "assistant", "content": "第一輪答"},
-            ]
+            chat.history.extend(
+                [
+                    {"role": "user", "content": "第一輪"},
+                    {"role": "assistant", "tool_calls": [{"id": "c1"}]},
+                    {"role": "tool", "tool_call_id": "c1", "content": "x"},
+                    {"role": "assistant", "content": "第一輪答"},
+                ]
+            )
             chat.ask("第二輪")
 
     sent = mock_invoke.call_args[0][1]
