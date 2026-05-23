@@ -95,7 +95,7 @@ chat = Chat(
 reply = chat.complete("幫我搜尋 MCP 協定是什麼")
 ```
 
-有狀態時：tool 訊息是否寫入 `_history` 由實作決定；**建議**僅保留最終 user/assistant 對，或提供 `include_tool_messages_in_history: bool` 預設 `False`。
+有狀態時：預設僅保留最終 user/assistant 對；`include_tool_messages_in_history=True` 時寫入本輪 MCP trail（assistant+tool_calls、tool、最終 assistant）。
 
 ### MCP 工具識別（內部）
 

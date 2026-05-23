@@ -1,14 +1,15 @@
 ---
-description: aicentral project context and stack
+description: aicentral 專案背景與技術棧
 alwaysApply: true
 ---
 
 # aicentral
 
-- Python 3.11+ **library** providing AI capabilities to other projects (not a business service repo).
-- Lightweight merge of LiteLLM-style routing + Instructor-style structured outputs; **do not** add `litellm` or `instructor` as pip dependencies.
-- Source package: `src/aicentral/` — core, providers, routing, structured, optional gateway only.
-- No `services/` layer here; domain logic lives in consumer projects.
-- Tests: `tests/`; scripts: `scripts/`; optional Docker: `docker/`.
-- Install: `pip install -e ".[dev]"` or `pip install "aicentral[gateway]"` for HTTP.
-- Config: `config/aicentral.yaml` (committed) + `config/secret.yaml` (local, from `secret.yaml.example`).
+- Python 3.11+ 函式庫，供其他專案 import 使用 AI 能力，非承載業務邏輯的應用服務 repo。
+- 輕量整合 LiteLLM 風格路由與 Instructor 風格結構化輸出；不得將 `litellm`、`instructor` 加入 pip 依賴。
+- 原始碼：`src/aicentral/`（core、providers、routing、structured，gateway 為可選）。
+- 無 `services/` 層；領域邏輯放在消費方專案（如 aicentral-chat、aicentral-mcp）。
+- 測試：`tests/`；腳本：`scripts/`；可選 Docker：`docker/`。
+- 安裝：`pip install -e ".[dev]"`；HTTP Proxy：`pip install "aicentral[gateway]"`。
+- 設定：`config/aicentral.yaml`（可提交）+ `config/secret.yaml`（本機，由 `secret.yaml.example` 複製）。
+- 程式註解慣例：`.cursor/rules/code-comments.mdc`。

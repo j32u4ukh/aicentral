@@ -1,0 +1,41 @@
+---
+description: 撰寫與維護程式碼時的註解與區塊說明慣例
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# 程式碼註解
+
+撰寫或修改 `src/aicentral/`、`tests/` 程式時，適時加入註解，讓後續閱讀者能快速掌握流程與意圖。非每行都註解，避免贅述顯而易見的語法。
+
+## 函式層級
+
+- 公開方法、複雜私有方法：在函式上方用 docstring 說明整體職責、重要參數、回傳型態與例外。
+- 簡短一行可完成的輔助函式，一行 docstring 即可。
+
+## 函式內部（區塊註解）
+
+邏輯分成多個階段時，每個階段前用一行 `#` 註解標示在做什麼，例如：
+
+- 組裝請求（messages、MCP kwargs）
+- 前置檢查（模式、串流與 MCP 互斥）
+- 依 `ChatMode` 分支委派
+- 呼叫底層 `complete()` / orchestrator
+- 解析回傳（純文字 vs MCP trail）
+- 寫入 `_history`、修剪政策
+
+同一函式內連續多行若屬同一區塊，在區塊開頭註解一次即可，不必逐行重複。
+
+## 原則
+
+| 應寫 | 可不寫 |
+|------|--------|
+| 分支理由（為何 stateless 不寫 history） | `import`、`return` 等機械步驟 |
+| 與型別／協定相關的約束（MCP 不支援 stream） | 變數名已充分表意的賦值 |
+| 非直覺的資料流（tuple trail、迭代結束才 `_record_turn`） | 測試裡的 arrange 若一目了然 |
+
+## 參考範例
+
+`src/aicentral/chat.py` 的 `Chat.complete()`：docstring 概括行為，內部以區塊註解標示組裝 request_messages、檢查 MCP 與 stream、有狀態寫入歷史（含 trail）等步驟。
+
+註解使用繁體中文，與專案文件一致；技術符號（`_history`、`mcp_servers`）保留原文。

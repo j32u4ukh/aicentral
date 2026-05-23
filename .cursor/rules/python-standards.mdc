@@ -1,17 +1,18 @@
 ---
-description: Python coding standards for aicentral
+description: aicentral Python 撰寫規範
 globs: "**/*.py"
 alwaysApply: false
 ---
 
-# Python Standards
+# Python 撰寫規範
 
-- Target Python 3.11+; use type hints on public functions and methods.
-- Prefer `pathlib.Path` over string paths.
-- Load secrets from `config/secret.yaml` via `get_secret()`; never hardcode API keys in source.
-- Use Pydantic models for structured LLM outputs (Instructor pattern).
-- Route LLM calls through LiteLLM when proxying or multi-provider support is needed.
-- Keep modules focused; put one-off tooling in `scripts/`, not in `src/aicentral/`.
+- 註解與區塊說明：見 [code-comments.mdc](./code-comments.mdc)。
+- 目標版本 Python 3.11+；公開函式與方法需有型別標註。
+- 路徑優先使用 `pathlib.Path`，避免字串路徑拼接。
+- 機密由 `config/secret.yaml` 經 `get_secret()` 載入，不得在原始碼硬編碼 API 金鑰。
+- 結構化輸出使用 Pydantic 模型（Instructor 風格，但不依賴 `instructor` 套件）。
+- LLM 呼叫經 `complete()` / `routing` / `providers`，勿在消費方繞過直接打各供應商 HTTP。
+- 模組職責單一；一次性腳本放 `scripts/`，勿塞進 `src/aicentral/`。
 
 ```python
 from aicentral.config import get_config, get_secret
