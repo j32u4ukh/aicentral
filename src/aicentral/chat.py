@@ -12,6 +12,7 @@ Chat 工作階段：有狀態 / 無狀態多輪對話、歷史修剪與串流（
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Iterator
 from enum import StrEnum
 from typing import Any, TypeVar, overload
@@ -25,6 +26,8 @@ from aicentral.routing.router import effective_embedding_model, effective_model
 
 # 向後相容：歷史政策仍可由 ``from aicentral.chat import HistoryPolicy`` 匯入
 __all__ = ["Chat", "ChatMode", "HistoryPolicy"]
+
+_logger = logging.getLogger(__name__)
 
 
 class ChatMode(StrEnum):
@@ -180,6 +183,7 @@ class Chat:
         - **有狀態 + 串流**：包裝迭代器，全文收齊後才 ``record_turn``（見 ``_complete_stateful_stream``）。
         - **有狀態 + 非串流**：取得回覆後寫入歷史；MCP 且 ``include_tool_messages_in_history``
           時可能收到 ``(reply, trail)`` 並一併寫入 tool 軌跡。
+        - **SEGMENT_COMPRESS**：對話 API 與向量化 API 皆完成後才回傳（見 ``_record_stateful_turn``）。
         """
         # 組裝本輪 user 訊息，並與 history 或 stateless context 合併
         user_msg: Message = {"role": "user", "content": user_input}
@@ -227,8 +231,7 @@ class Chat:
         else:
             reply = result
 
-        # 寫入 history 並依 policy 修剪（embedding / 摘要由 History 直連 core.client）
-        self.history.record_turn(user_msg, reply, trail=trail)
+        self._record_stateful_turn(user_msg, reply, trail=trail)
         return reply
 
     def complete_structured(
@@ -255,12 +258,33 @@ class Chat:
             **kwargs,
         )
         if self._mode == ChatMode.STATEFUL:
-            self.history.record_turn(user_msg, result.model_dump_json())
+            self._record_stateful_turn(user_msg, result.model_dump_json())
         return result
 
     # ==========================================
     # 對外便利方法（委派至 History 使用的同一組模型參數）
     # ==========================================
+    def _record_stateful_turn(
+        self,
+        user_msg: Message,
+        reply: str,
+        *,
+        trail: list[Message] | None = None,
+    ) -> None:
+        """寫入 history；``SEGMENT_COMPRESS`` 時先完成對話與向量化兩個 API 再寫入。"""
+        turn_embedding: list[float] | None = None
+        if self.history.policy == HistoryPolicy.SEGMENT_COMPRESS and not trail:
+            try:
+                turn_embedding = self.history.embed_turn(user_msg, reply)
+            except Exception as exc:
+                _logger.warning("本輪向量化失敗 (%s)，壓縮時將嘗試補齊或降級。", exc)
+        self.history.record_turn(
+            user_msg,
+            reply,
+            trail=trail,
+            turn_embedding=turn_embedding,
+        )
+
     def get_embedding(self, text: str) -> list[float]:
         """取向量（使用 ``history.embedding_model``，非對話 ``model``）。"""
         return self.history._get_embedding(text)
@@ -317,7 +341,7 @@ class Chat:
             for delta in stream:
                 chunks.append(delta)
                 yield delta
-            # 串流耗盡後才 record_turn；中途例外則不會執行到此
-            self.history.record_turn(user_msg, "".join(chunks))
+            # 串流耗盡後：向量化 + 寫入 history；中途例外則不會執行到此
+            self._record_stateful_turn(user_msg, "".join(chunks))
 
         return _iter()
