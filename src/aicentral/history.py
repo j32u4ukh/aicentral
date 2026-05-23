@@ -28,6 +28,7 @@ _SUMMARY_SYSTEM = (
 _LEGACY_SEGMENT_WINDOW = 5
 # 壓縮日誌中單則 content 預覽字元上限
 _LOG_CONTENT_WIDTH = 120
+_EMBEDDING_TEXT_WIDTH = 8192
 
 
 class HistoryPolicy(StrEnum):
@@ -189,6 +190,18 @@ class History:
         _logger.info("【%s】壓縮後（共 %d 則）", action, len(after_storage))
         for index, msg in enumerate(after_storage):
             _logger.info("%s", self._format_message_line(index, msg))
+
+    @staticmethod
+    def _turn_embedding_text(user_msg: Message, reply: str) -> str:
+        user_part = str(user_msg.get("content", ""))[:_EMBEDDING_TEXT_WIDTH]
+        reply_part = str(reply)[:_EMBEDDING_TEXT_WIDTH]
+        return f"user: {user_part}\nassistant: {reply_part}"
+
+    def embed_turn(self, user_msg: Message, reply: str) -> list[float]:
+        """本輪向量化 API（與對話 API 分開；每輪各呼叫一次）。"""
+        text = self._turn_embedding_text(user_msg, reply)
+        _logger.info("向量化 API：model=%s", self.embedding_model)
+        return self._get_embedding(text)
 
     def _get_embedding(self, text: str) -> list[float]:
         """呼叫 ``core.client.embedding``（使用 ``embedding_model``，非對話模型）。"""
