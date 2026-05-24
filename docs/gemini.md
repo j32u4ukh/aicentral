@@ -94,4 +94,4 @@ gemini_payload_tools = [
 ### 🎯 總結
 
 1. **直接原因**：Gemini 收到一個帶有 `"type"` 和 `"function"` 欄位的 Tools 陣列，這在它的 API 規範中是「非法欄位（Unknown name）」。
-2. **aicentral 已實作（LiteLLM 思路）**：MCP 編排仍產生 OpenAI `tools`；`providers/gemini.py` 發送前經 `providers/transform/gemini_tools.py` 轉成 `functionDeclarations`，回應 `functionCall` 再轉回 `tool_calls`。對話歷史中的 `tool` / `tool_calls` 由 `providers/transform/gemini.py` 的 `to_gemini_request` 處理。
+2. **aicentral 已實作（LiteLLM 思路）**：MCP 編排仍產生 OpenAI `tools`；`providers/gemini.py` 發送前經 `providers/transform/gemini_tools.py` 轉成 `functionDeclarations`，並以 `sanitize_json_schema_for_gemini()` 移除 `additional_properties` 等欄位；回應 `functionCall` 再轉回 `tool_calls`，並保留 **`thoughtSignature`**（存於 `provider_specific_fields` 或嵌於 `tool_call_id` 的 `__thought__` 後綴）。多輪 tool loop 送回 Gemini 時會帶回 `thoughtSignature`；若歷史無簽名則使用 Google 建議的 dummy 占位，避免 Gemini 3 回傳 400。

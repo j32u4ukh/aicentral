@@ -17,54 +17,44 @@ defaults:
 # - 多個 model：依序輪換；本分鐘用盡則切下一個；全滿則等到下一分鐘
 gemini_pools:
   default:
+    # 跨程序持久化：輪換索引 + 各模型 rpm/rpd 累計（gemini-limit.md 方案二）
+    rate_limit_store_path: config/rate_limit_store.json
     # wait_poll_seconds 已棄用；全池滿時依「上次請求」所在分鐘的結束時間等待
     wait_poll_seconds: 1.0
     # 429 指數退讓（gemini-limit.md 方案四）；有 Retry-After 標頭時優先採用
     retry_initial_seconds: 2.0
     retry_max_seconds: 32.0
     models:
-      # gemini-3.5-flash — rpm 15, tpm 1_000_000, rpd 1500
-      - model_id: gemini-3.5-flash
-        rpm_official: 15
-        rpm_limit: 12
-        rpd_official: 1500
-        rpd_limit: 1200
-      # gemini-3.1-pro — rpm 2, tpm 32_000, rpd 50
-      - model_id: gemini-3.1-pro
-        rpm_official: 2
-        rpm_limit: 1
-        rpd_official: 50
-        rpd_limit: 40
-      # gemini-3.1-flash-lite — rpm 30, tpm 2_000_000, rpd 1500
+      # gemini-3.1-flash-lite（穩定 ID；preview 別名見官方文件）
       - model_id: gemini-3.1-flash-lite
-        rpm_official: 30
-        rpm_limit: 24
-        rpd_official: 1500
-        rpd_limit: 1200
-      # gemini-3-flash — rpm 15, tpm 1_000_000, rpd 1500
-      - model_id: gemini-3-flash
         rpm_official: 15
-        rpm_limit: 12
-        rpd_official: 1500
-        rpd_limit: 1200
+        rpm_limit: 14
+        rpd_official: 500
+        rpd_limit: 499
+      # gemini-3-flash-preview（API 無 gemini-3-flash）
+      - model_id: gemini-3-flash-preview
+        rpm_official: 5
+        rpm_limit: 4
+        rpd_official: 20
+        rpd_limit: 19
       # gemini-2.5-flash — rpm 15, tpm 1_000_000, rpd 1500
       - model_id: gemini-2.5-flash
-        rpm_official: 15
-        rpm_limit: 12
-        rpd_official: 1500
-        rpd_limit: 1200
+        rpm_official: 5
+        rpm_limit: 4
+        rpd_official: 20
+        rpd_limit: 19
       # gemini-2.5-flash-lite — rpm 30, tpm 2_000_000, rpd 1500
       - model_id: gemini-2.5-flash-lite
-        rpm_official: 30
-        rpm_limit: 24
-        rpd_official: 1500
-        rpd_limit: 1200
-      # gemini-2.5-pro — rpm 2, tpm 32_000, rpd 50
-      - model_id: gemini-2.5-pro
-        rpm_official: 2
-        rpm_limit: 1
-        rpd_official: 50
-        rpd_limit: 40
+        rpm_official: 10
+        rpm_limit: 9
+        rpd_official: 20
+        rpd_limit: 19
+      # gemini-3.5-flash — rpm 15, tpm 1_000_000, rpd 1500
+      - model_id: gemini-3.5-flash
+        rpm_official: 5
+        rpm_limit: 4
+        rpd_official: 20
+        rpd_limit: 19
 
 model_list:
   - model_name: local-chat

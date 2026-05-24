@@ -55,6 +55,13 @@ class GeminiPoolSettings(BaseModel):
     """具名 Gemini 模型池（多模型輪換 / 單模型固定）。"""
 
     models: list[GeminiPoolModelEntry] = Field(min_length=1)
+    rate_limit_store_path: str | None = Field(
+        default=None,
+        description=(
+            "配額計數與輪換 model_index 的 JSON 路徑（相對 aicentral repo 或絕對路徑）；"
+            "見 config/rate_limit_store.json"
+        ),
+    )
     wait_poll_seconds: float = Field(
         default=1.0,
         ge=0.1,

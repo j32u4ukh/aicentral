@@ -20,20 +20,38 @@
 
 以你熟悉的開發邏輯來說，可以用極簡的 `Counter` 邏輯來處理：
 
-```json
-// rate_limit_store.json
-{
-  "total_calls": 42,
-  "last_reset_time": "2026-05-24T14:30:00Z"
-}
+**aicentral 已實作**（`config/rate_limit_store.json`，由 `gemini_pools.*.rate_limit_store_path` 指定）：
 
+```json
+{
+  "version": 1,
+  "pools": {
+    "default": {
+      "model_index": 2,
+      "next_model_id": "gemini-3-flash-preview",
+      "total_calls": 42,
+      "last_success_time": 1716475200.0,
+      "models": {
+        "gemini-2.5-flash": {
+          "minute_epoch": 29274640,
+          "minute_count": 3,
+          "day_epoch": 20345,
+          "day_count": 12
+        }
+      }
+    }
+  }
+}
 ```
 
 **實作邏輯：**
 
-1. **執行前讀取**：程式啟動時，先讀取 `rate_limit_store.json`。
-2. **檢查時間戳**：如果 `last_reset_time` 距離現在已經超過了 Gemini 的重置週期（例如 RPM 是每分鐘計算，TPD 是每天計算），就將 `total_calls` 歸零。
-3. **呼叫後寫入**：每次 API 呼叫成功，`total_calls ++` 並立刻覆寫回檔案。
+1. **執行前讀取**：建立 `GeminiPoolLimiter` 時載入 JSON（`model_index`、各模型 `minute_*` / `day_*`）。
+2. **選模型**：從 `model_index` 起輪詢池內模型；選中後 `model_index = (index + 1) % N` 並寫回檔案。
+3. **計數**：`acquire` 預留 + Header 同步 / 429 懲罰後更新各模型計數並持久化；`total_calls` 為全池累計呼叫次數。
+4. **分鐘/日重置**：依 `minute_epoch` / `day_epoch` 與目前時間比對，跨分鐘/跨日自動歸零（與記憶體邏輯相同）。
+
+範本：`config/rate_limit_store.example.json`（可提交版控）；實際計數檔預設在 `.gitignore`。
 
 這樣一來，就算你中間調整了設定、重啟了程式，它依然能接續上一次的計數。
 
@@ -93,9 +111,9 @@ Google 官方**目前並沒有**提供可以直接給程式讀取的純 JSON、Y
       "description": "免費階層 (未綁定信用卡)",
       "models": {
         "gemini-3.5-flash": { "rpm": 15, "tpm": 1000000, "rpd": 1500 },
-        "gemini-3.1-pro": { "rpm": 2, "tpm": 32000, "rpd": 50 },
+        "gemini-3.1-pro-preview": { "rpm": 2, "tpm": 32000, "rpd": 50 },
         "gemini-3.1-flash-lite": { "rpm": 30, "tpm": 2000000, "rpd": 1500 },
-        "gemini-3-flash": { "rpm": 15, "tpm": 1000000, "rpd": 1500 },
+        "gemini-3-flash-preview": { "rpm": 15, "tpm": 1000000, "rpd": 1500 },
         "gemini-2.5-flash": { "rpm": 15, "tpm": 1000000, "rpd": 1500 },
         "gemini-2.5-flash-lite": { "rpm": 30, "tpm": 2000000, "rpd": 1500 },
         "gemini-2.5-pro": { "rpm": 2, "tpm": 32000, "rpd": 50 }
@@ -105,9 +123,9 @@ Google 官方**目前並沒有**提供可以直接給程式讀取的純 JSON、Y
       "description": "付費第一階層 (已綁定計費帳戶/開卡)",
       "models": {
         "gemini-3.5-flash": { "rpm": 300, "tpm": 2000000, "rpd": 1500 },
-        "gemini-3.1-pro": { "rpm": 360, "tpm": 2000000, "rpd": 1000 },
+        "gemini-3.1-pro-preview": { "rpm": 360, "tpm": 2000000, "rpd": 1000 },
         "gemini-3.1-flash-lite": { "rpm": 600, "tpm": 4000000, "rpd": 3000 },
-        "gemini-3-flash": { "rpm": 300, "tpm": 2000000, "rpd": 1500 },
+        "gemini-3-flash-preview": { "rpm": 300, "tpm": 2000000, "rpd": 1500 },
         "gemini-2.5-flash": { "rpm": 300, "tpm": 2000000, "rpd": 1500 },
         "gemini-2.5-flash-lite": { "rpm": 600, "tpm": 4000000, "rpd": 3000 },
         "gemini-2.5-pro": { "rpm": 360, "tpm": 2000000, "rpd": 1000 }
@@ -117,9 +135,9 @@ Google 官方**目前並沒有**提供可以直接給程式讀取的純 JSON、Y
       "description": "付費第二階層 (累積消費滿 $250 美元)",
       "models": {
         "gemini-3.5-flash": { "rpm": 1000, "tpm": 4000000, "rpd": 10000 },
-        "gemini-3.1-pro": { "rpm": 1000, "tpm": 4000000, "rpd": 10000 },
+        "gemini-3.1-pro-preview": { "rpm": 1000, "tpm": 4000000, "rpd": 10000 },
         "gemini-3.1-flash-lite": { "rpm": 2000, "tpm": 8000000, "rpd": 20000 },
-        "gemini-3-flash": { "rpm": 1000, "tpm": 4000000, "rpd": 10000 },
+        "gemini-3-flash-preview": { "rpm": 1000, "tpm": 4000000, "rpd": 10000 },
         "gemini-2.5-flash": { "rpm": 1000, "tpm": 4000000, "rpd": 10000 },
         "gemini-2.5-flash-lite": { "rpm": 2000, "tpm": 8000000, "rpd": 20000 },
         "gemini-2.5-pro": { "rpm": 1000, "tpm": 4000000, "rpd": 10000 }
@@ -147,7 +165,7 @@ Google 官方**目前並沒有**提供可以直接給程式讀取的純 JSON、Y
 POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent
 Header: `X-Goog-Api-Key: YOUR_API_KEY`
 
-POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro:generateContent
+POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent
 Header: `X-Goog-Api-Key: YOUR_API_KEY`
 
 （aicentral：`providers/gemini.build_generate_content_url` 依池內 `model_id` 拼接路徑；金鑰走 Header，不用 `?key=`。）

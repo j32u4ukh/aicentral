@@ -15,6 +15,7 @@ import threading
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from aicentral.config.schema import GeminiPoolModelEntry, GeminiPoolSettings
 from aicentral.core.errors import ProviderError
@@ -22,6 +23,10 @@ from aicentral.routing.gemini_headers import (
     GeminiRateLimitInfo,
     log_rate_limit_info,
     parse_rate_limit_from_response,
+)
+from aicentral.routing.gemini_rate_limit_store import (
+    GeminiRateLimitStore,
+    resolve_store_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,6 +58,9 @@ class GeminiPoolLimiter:
     wait_poll_seconds: float = 1.0
     retry_initial_seconds: float = 2.0
     retry_max_seconds: float = 32.0
+    _store: GeminiRateLimitStore | None = field(default=None, repr=False)
+    _model_index: int = field(default=0, repr=False)
+    _total_calls: int = field(default=0, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _usage: dict[str, _UsageCounters] = field(default_factory=dict, repr=False)
     _consecutive_429: int = field(default=0, repr=False)
@@ -64,13 +72,71 @@ class GeminiPoolLimiter:
     def from_settings(cls, name: str, settings: GeminiPoolSettings) -> GeminiPoolLimiter:
         if not settings.models:
             raise ValueError(f"gemini_pools.{name!r} 的 models 不可為空")
-        return cls(
+        pool = cls(
             name=name,
             models=list(settings.models),
             wait_poll_seconds=settings.wait_poll_seconds,
             retry_initial_seconds=settings.retry_initial_seconds,
             retry_max_seconds=settings.retry_max_seconds,
         )
+        store_path = resolve_store_path(settings.rate_limit_store_path)
+        if store_path is not None:
+            pool._load_from_store(store_path)
+        return pool
+
+    def _model_ids(self) -> list[str]:
+        return [m.model_id for m in self.models]
+
+    def _load_from_store(self, path: Path) -> None:
+        store = GeminiRateLimitStore(self.name, self._model_ids(), path)
+        self._store = store
+        rec = store.record
+        self._model_index = int(rec.get("model_index", 0)) % max(len(self.models), 1)
+        self._total_calls = int(rec.get("total_calls", 0))
+        last = rec.get("last_success_time")
+        if isinstance(last, (int, float)):
+            self._last_success_time = float(last)
+        models_map = rec.get("models", {})
+        if isinstance(models_map, dict):
+            for mid, row in models_map.items():
+                if not isinstance(row, dict):
+                    continue
+                counters = self._counters_for(mid)
+                counters.minute_epoch = int(row.get("minute_epoch", 0))
+                counters.minute_count = int(row.get("minute_count", 0))
+                counters.day_epoch = int(row.get("day_epoch", 0))
+                counters.day_count = int(row.get("day_count", 0))
+        logger.info(
+            "gemini_pool %s 已載入 %s：model_index=%s next=%s total_calls=%s",
+            self.name,
+            path,
+            self._model_index,
+            rec.get("next_model_id"),
+            self._total_calls,
+        )
+
+    def _usage_snapshot(self) -> dict[str, dict[str, int]]:
+        rows: dict[str, dict[str, int]] = {}
+        for mid in self._model_ids():
+            c = self._counters_for(mid)
+            rows[mid] = {
+                "minute_epoch": c.minute_epoch,
+                "minute_count": c.minute_count,
+                "day_epoch": c.day_epoch,
+                "day_count": c.day_count,
+            }
+        return rows
+
+    def _persist_store(self) -> None:
+        if self._store is None:
+            return
+        self._store.sync_from_limiter(
+            self._usage_snapshot(),
+            model_index=self._model_index,
+            total_calls=self._total_calls,
+            last_success_time=self._last_success_time,
+        )
+        self._store.persist()
 
     @staticmethod
     def _effective_limits(entry: GeminiPoolModelEntry) -> _EffectiveLimits:
@@ -204,6 +270,7 @@ class GeminiPoolLimiter:
                 before_day,
                 counters.day_count,
             )
+        self._persist_store()
 
     def mark_minute_exhausted(
         self,
@@ -262,6 +329,7 @@ class GeminiPoolLimiter:
             counters.minute_count = min(used, rpm_cap)
             if info.remaining_requests <= 0:
                 counters.minute_count = rpm_cap
+            self._persist_store()
 
     def backoff_seconds_for_429(self, retry_after: float | None) -> float:
         """429 退讓秒數：優先 Retry-After，否則指數退讓（方案四）。"""
@@ -286,17 +354,34 @@ class GeminiPoolLimiter:
         while True:
             now = time.time()
             with self._lock:
-                for entry in self.models:
+                n = len(self.models)
+                start = self._model_index % n if n else 0
+                chosen_index: int | None = None
+                chosen_id: str | None = None
+                for offset in range(n):
+                    idx = (start + offset) % n
+                    entry = self.models[idx]
                     if self._under_limit(entry, now=now):
                         self._reserve(entry, now=now)
-                        logger.debug(
-                            "gemini_pool %s 選用 %s (minute=%s day=%s)",
-                            self.name,
-                            entry.model_id,
-                            self._counters_for(entry.model_id).minute_count,
-                            self._counters_for(entry.model_id).day_count,
-                        )
-                        return entry.model_id
+                        chosen_index = idx
+                        chosen_id = entry.model_id
+                        break
+
+                if chosen_id is not None and chosen_index is not None:
+                    self._model_index = (chosen_index + 1) % n
+                    self._total_calls += 1
+                    self._persist_store()
+                    logger.debug(
+                        "gemini_pool %s 選用 %s (index %s→next %s, minute=%s day=%s, total=%s)",
+                        self.name,
+                        chosen_id,
+                        chosen_index,
+                        self._model_index,
+                        self._counters_for(chosen_id).minute_count,
+                        self._counters_for(chosen_id).day_count,
+                        self._total_calls,
+                    )
+                    return chosen_id
 
                 all_daily_full = all(
                     not self._under_limit_for_daily(m, now=now) for m in self.models

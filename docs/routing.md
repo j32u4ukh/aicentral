@@ -307,6 +307,8 @@ from aicentral import (
 
 設定範例見 `config/aicentral.yaml` 的 `gemini_pools` 與 `gemini-flash` 別名。
 
+**跨程序持久化**：池可設 `rate_limit_store_path: config/rate_limit_store.json`，保存 `model_index`（下次從哪個模型開始）、`total_calls` 與各模型 rpm/rpd 累計（見 `docs/gemini-limit.md` 方案二）。
+
 ---
 
 ## 刻意不做（v4.0）

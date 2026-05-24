@@ -6,7 +6,12 @@ import json
 from typing import Any
 
 from aicentral.core.types import Message
-from aicentral.providers.transform.gemini_tools import gemini_function_calls_to_openai_tool_calls
+from aicentral.providers.transform.gemini_tools import (
+    gemini_function_calls_to_openai_tool_calls,
+    openai_tool_call_to_gemini_part,
+    register_tool_call_name,
+    resolve_tool_call_name,
+)
 
 
 def to_gemini_request(
@@ -43,18 +48,20 @@ def to_gemini_request(
                     if not isinstance(fn, dict):
                         continue
                     name = str(fn.get("name", ""))
-                    tc_id = tc.get("id")
-                    if tc_id is not None and name:
-                        tool_call_id_to_name[str(tc_id)] = name
-                    args = _parse_function_arguments(fn.get("arguments"))
-                    parts.append({"functionCall": {"name": name, "args": args}})
+                    register_tool_call_name(tool_call_id_to_name, tc.get("id"), name)
+                    parts.append(
+                        openai_tool_call_to_gemini_part(
+                            tc,
+                            use_dummy_thought_signature=True,
+                        )
+                    )
             if parts:
                 contents.append({"role": "model", "parts": parts})
             continue
 
         if role == "tool":
             tc_id = str(msg.get("tool_call_id", ""))
-            name = tool_call_id_to_name.get(tc_id)
+            name = resolve_tool_call_name(tool_call_id_to_name, tc_id)
             if not name:
                 # 無對照時略過文字化，避免 Gemini 400
                 content = str(msg.get("content", ""))

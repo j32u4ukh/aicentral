@@ -150,6 +150,9 @@ activemq-data/
 # Local secrets (use config/secret.yaml.example as template)
 config/secret.yaml
 
+# Gemini 池本地配額計數（範本見 rate_limit_store.example.json）
+config/rate_limit_store.json
+
 # Environments
 .env
 .envrc

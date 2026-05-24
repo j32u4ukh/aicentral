@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "updated_at": "2026-05-23T12:00:00+00:00",
+  "pools": {
+    "default": {
+      "model_index": 2,
+      "next_model_id": "gemini-3-flash-preview",
+      "total_calls": 42,
+      "last_success_time": 1716475200.0,
+      "models": {
+        "gemini-3.1-pro-preview": {
+          "minute_epoch": 29274640,
+          "minute_count": 1,
+          "day_epoch": 20345,
+          "day_count": 5
+        },
+        "gemini-2.5-flash": {
+          "minute_epoch": 29274640,
+          "minute_count": 0,
+          "day_epoch": 20345,
+          "day_count": 12
+        }
+      }
+    }
+  }
+}

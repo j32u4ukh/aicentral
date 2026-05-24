@@ -59,9 +59,10 @@ def test_single_model_uses_same_id() -> None:
 
 def test_rotate_when_minute_limit_hit() -> None:
     pool = _pool_two_models()
-    assert pool.acquire() == "model-a"
+    # 從 model_index=0 起，每次成功後索引 +1，故第二次會先嘗試 model-b
     assert pool.acquire() == "model-a"
     assert pool.acquire() == "model-b"
+    assert pool.acquire() == "model-a"
     assert pool.acquire() == "model-b"
 
 
