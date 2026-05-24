@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import logging
 
 import uvicorn
 
 from aicentral.config import load_config
+from aicentral.logging_config import configure_logging
 from aicentral.config.loader import get_config
 from aicentral.gateway.localhost import validate_bind_host
 
 
 def main(argv: list[str] | None = None) -> None:
+    configure_logging(level=logging.INFO)
     load_config(reload=True)
     cfg = get_config().gateway
     host = validate_bind_host(cfg.bind_host)

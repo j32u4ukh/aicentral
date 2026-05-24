@@ -1,5 +1,9 @@
 """aicentral — AI capability library for other projects (LLM routing + structured outputs)."""
 
+from aicentral.logging_config import configure_logging, ensure_package_logging
+
+ensure_package_logging()
+
 from aicentral.chat import Chat, ChatMode, HistoryPolicy
 from aicentral.history import History
 from aicentral.config import get_config, load_config
@@ -69,5 +73,7 @@ __all__ = [
     "StructuredNoPayloadError",
     "StructuredOutputError",
     "StructuredValidationError",
+    "configure_logging",
+    "ensure_package_logging",
     "__version__",
 ]

@@ -6,7 +6,7 @@
 - `complete_structured()` 回傳驗證過的 Pydantic model
 - 可選 `[gateway]` 額外依賴，提供 OpenAI 相容 HTTP 介面
 
-文件：[`docs/concepts.md`](docs/concepts.md)（核心概念）、[`docs/aicentral.md`](docs/aicentral.md)（架構與版本）、[`docs/aicentral-v0.1.md`](docs/aicentral-v0.1.md)（v0.1 實作紀錄）、[`docs/security.md`](docs/security.md)（Gateway 安全規劃）。
+文件：[`docs/concepts.md`](docs/concepts.md)（核心概念）、[`docs/aicentral.md`](docs/aicentral.md)（架構與版本）、[`docs/aicentral-v0.1.md`](docs/aicentral-v0.1.md)（v0.1 實作紀錄）、[`docs/logging.md`](docs/logging.md)（日誌慣例）、[`docs/security.md`](docs/security.md)（Gateway 安全規劃）。
 
 ---
 
