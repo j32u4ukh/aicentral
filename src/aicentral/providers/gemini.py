@@ -14,6 +14,7 @@ from aicentral.providers.transform.gemini import (
     text_from_gemini_response,
     to_gemini_request,
 )
+from aicentral.providers.transform.gemini_tools import apply_openai_tools_to_gemini_payload
 from aicentral.routing.gemini_headers import parse_rate_limit_from_response
 
 DEFAULT_TIMEOUT = 120.0
@@ -22,6 +23,7 @@ _GOOG_API_KEY_HEADER = "X-Goog-Api-Key"
 
 _GEMINI_POOL_KEY = "_gemini_pool"
 _GEMINI_MODEL_ID_KEY = "_gemini_model_id"
+_OPENAI_ONLY_EXTRA_KEYS = frozenset({"tools", "tool_choice"})
 
 
 def _normalize_base(base_url: str) -> str:
@@ -33,6 +35,28 @@ def _pop_internal_extra(extra: dict[str, Any]) -> tuple[Any | None, str | None]:
     model_id = extra.pop(_GEMINI_MODEL_ID_KEY, None)
     mid = str(model_id).strip() if model_id else None
     return pool, mid
+
+
+def _build_gemini_payload(
+    *,
+    messages: list[Message],
+    extra: dict[str, Any],
+) -> dict[str, Any]:
+    """組 Gemini generateContent body；將 OpenAI tools 轉為 functionDeclarations。"""
+    call_extra = dict(extra)
+    tools = call_extra.pop("tools", None)
+    tool_choice = call_extra.pop("tool_choice", None)
+    for key in list(call_extra):
+        if key in _OPENAI_ONLY_EXTRA_KEYS:
+            call_extra.pop(key, None)
+
+    system_instruction, contents = to_gemini_request(messages)
+    payload: dict[str, Any] = {"contents": contents, **call_extra}
+    if system_instruction:
+        payload["systemInstruction"] = system_instruction
+    if isinstance(tools, list) and tools:
+        apply_openai_tools_to_gemini_payload(payload, tools, tool_choice)
+    return payload
 
 
 def _raise_provider(exc: httpx.RequestError, endpoint: str) -> None:
@@ -148,11 +172,7 @@ def chat_completions_raw(
         raise ProviderError("Gemini 需要 api_key（設定 GEMINI_API_KEY 或 config）")
 
     pool, notify_model_id = _pop_internal_extra(extra)
-    system_instruction, contents = to_gemini_request(messages)
-
-    payload: dict[str, Any] = {"contents": contents, **extra}
-    if system_instruction:
-        payload["systemInstruction"] = system_instruction
+    payload = _build_gemini_payload(messages=messages, extra=extra)
 
     endpoint = build_generate_content_url(model, base_url=base_url)
     response = _post_generate_content(
@@ -183,10 +203,7 @@ def chat_completions(
         raise ProviderError("Gemini 需要 api_key（設定 GEMINI_API_KEY 或 config）")
 
     pool, notify_model_id = _pop_internal_extra(extra)
-    system_instruction, contents = to_gemini_request(messages)
-    payload: dict[str, Any] = {"contents": contents, **extra}
-    if system_instruction:
-        payload["systemInstruction"] = system_instruction
+    payload = _build_gemini_payload(messages=messages, extra=extra)
 
     endpoint = build_generate_content_url(model, base_url=base_url)
     response = _post_generate_content(

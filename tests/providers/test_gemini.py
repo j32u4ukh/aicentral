@@ -48,6 +48,54 @@ def test_chat_completions_gemini() -> None:
     assert "params" not in call[1] or call[1].get("params") in (None, {})
 
 
+@patch("aicentral.providers.gemini.httpx.Client")
+def test_chat_completions_with_mcp_tools(mock_client_cls: MagicMock) -> None:
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "functionCall": {
+                                "name": "unity__Unity_ListResources",
+                                "args": {},
+                            }
+                        }
+                    ]
+                }
+            }
+        ],
+    }
+    mock_client = MagicMock()
+    mock_client.__enter__.return_value = mock_client
+    mock_client.post.return_value = mock_response
+    mock_client_cls.return_value = mock_client
+
+    from aicentral.providers.gemini import chat_completions_raw
+
+    data = chat_completions_raw(
+        messages=[{"role": "user", "content": "list tools"}],
+        model="gemini-2.0-flash",
+        api_key="gem-key",
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "unity__Unity_ListResources",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ],
+    )
+    body = mock_client.post.call_args[1]["json"]
+    assert "functionDeclarations" in body["tools"][0]
+    assert "type" not in body["tools"][0]
+    msg = data["choices"][0]["message"]
+    assert msg["tool_calls"][0]["function"]["name"] == "unity__Unity_ListResources"
+
+
 def test_chat_completions_429_sets_retry_after() -> None:
     mock_response = MagicMock()
     mock_response.status_code = 429
