@@ -47,8 +47,9 @@ def _gemini_pool_config() -> AICentralConfig:
     )
 
 
+@patch("aicentral.routing.router.time.sleep")
 @patch("aicentral.providers.gemini.chat_completions")
-def test_complete_uses_pool_rotation(mock_chat: MagicMock) -> None:
+def test_complete_uses_pool_rotation(mock_chat: MagicMock, _mock_sleep: MagicMock) -> None:
     reset_gemini_pools()
     cfg = _gemini_pool_config()
     mock_chat.side_effect = ["reply-a", "reply-b"]

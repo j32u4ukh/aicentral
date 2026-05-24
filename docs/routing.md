@@ -300,7 +300,10 @@ from aicentral import (
 
 - **單一 model**：固定該模型；本分鐘或本日達限後等待下一分鐘（或拋出每日用盡錯誤）。
 - **多個 model**：依序使用；當前模型達 `rpm_limit` 後切下一個；全部達限則 `sleep` 至下一分鐘再從第一個重試。
-- API 回 **429** 時，該模型視為本分鐘已滿並自動嘗試池中下一個。
+- API 回 **429** 時：解析 `Retry-After` / 錯誤 JSON 的 `retryDelay`（[gemini-limit.md](./gemini-limit.md) 方案三），指數退讓後切換下一模型（方案四）。
+- 成功回應若含 `x-ratelimit-remaining-requests` 等標頭，會同步本地計數（斷續執行時較準）。
+- 若 Header 與實際不符仍收到 **429**：本地 `minute_count` 會**上調**至 `max(目前, rpm_official, rpm_limit, Header limit)`，避免同一分鐘內再次選到該模型（`gemini_pool._apply_rate_limit_penalty_locked`）。
+- **全池本分鐘皆滿**：依 `_last_success_time`（最近一次**成功**回應）所在分鐘的結束時刻 sleep（非固定 `wait_poll_seconds`；429 失敗不更新此時間）。
 
 設定範例見 `config/aicentral.yaml` 的 `gemini_pools` 與 `gemini-flash` 別名。
 

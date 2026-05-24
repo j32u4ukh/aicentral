@@ -142,3 +142,12 @@ Google 官方**目前並沒有**提供可以直接給程式讀取的純 JSON、Y
 * **方法**：`projects.locations.quotaInfos.list`
 * **服務名稱**：在 Google Cloud 裡，Gemini API 的服務名稱叫做 `generativelanguage.googleapis.com`。
 * **效果**：程式只要用你專案的 Service Account 權限去打這個 API，就能直接撈出一個包含目前專案 `RPM`、`RPD` 剩餘額度的 JSON 回傳值。不過這屬於 GCP 雲端架構的進階功能，如果是自己寫小腳本，直接用上面的靜態 JSON 設定檔通常最快、最直覺。
+
+
+POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent
+Header: `X-Goog-Api-Key: YOUR_API_KEY`
+
+POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro:generateContent
+Header: `X-Goog-Api-Key: YOUR_API_KEY`
+
+（aicentral：`providers/gemini.build_generate_content_url` 依池內 `model_id` 拼接路徑；金鑰走 Header，不用 `?key=`。）

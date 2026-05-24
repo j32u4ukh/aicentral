@@ -108,6 +108,50 @@ def test_mark_minute_exhausted_skips_model() -> None:
     assert pool.acquire() == "model-b"
 
 
+def test_seconds_until_minute_reset_uses_event_minute_not_now() -> None:
+    pool = _pool_single()
+    # 上次請求在 961（分鐘 16，結束於 1020）；現在 965 → 還需 55s
+    assert pool.seconds_until_minute_reset_after(961.0, now=965.0) == 55.0
+    # 同一分鐘內剛發請求：960.5 → 961.0，等到 1020
+    assert pool.seconds_until_minute_reset_after(960.5, now=961.0) == 59.0
+
+
+def test_last_success_time_only_on_successful_apply_headers() -> None:
+    pool = _pool_single()
+    pool.apply_headers(
+        "only",
+        {"x-ratelimit-remaining-requests": "5", "x-ratelimit-limit-requests": "15"},
+        status_code=200,
+    )
+    assert pool._last_success_time is not None
+    success_t = pool._last_success_time
+    pool.mark_minute_exhausted("only")
+    assert pool._last_success_time == success_t
+
+
+def test_429_bumps_to_official_when_header_was_optimistic() -> None:
+    """Header 偏低導致本地 count 小於實際；429 應上調至 rpm_official 避免再選同一模型。"""
+    pool = GeminiPoolLimiter.from_settings(
+        "bump",
+        GeminiPoolSettings(
+            models=[
+                GeminiPoolModelEntry(
+                    model_id="m",
+                    rpm_official=15,
+                    rpm_limit=12,
+                ),
+            ],
+        ),
+    )
+    counters = pool._counters_for("m")
+    counters.minute_count = 5
+    counters.minute_epoch = pool._minute_epoch()
+    pool.mark_minute_exhausted("m")
+    assert counters.minute_count == 15
+    limits = pool._effective_limits(pool.models[0])
+    assert counters.minute_count >= (limits.rpm or 0)
+
+
 def test_daily_limit_raises() -> None:
     pool = GeminiPoolLimiter.from_settings(
         "d",

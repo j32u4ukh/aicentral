@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from typing import Any
 
 import httpx
@@ -14,12 +14,25 @@ from aicentral.providers.transform.gemini import (
     text_from_gemini_response,
     to_gemini_request,
 )
+from aicentral.routing.gemini_headers import parse_rate_limit_from_response
 
 DEFAULT_TIMEOUT = 120.0
+_DEFAULT_BASE = "https://generativelanguage.googleapis.com/v1beta"
+_GOOG_API_KEY_HEADER = "X-Goog-Api-Key"
+
+_GEMINI_POOL_KEY = "_gemini_pool"
+_GEMINI_MODEL_ID_KEY = "_gemini_model_id"
 
 
 def _normalize_base(base_url: str) -> str:
     return base_url.rstrip("/")
+
+
+def _pop_internal_extra(extra: dict[str, Any]) -> tuple[Any | None, str | None]:
+    pool = extra.pop(_GEMINI_POOL_KEY, None)
+    model_id = extra.pop(_GEMINI_MODEL_ID_KEY, None)
+    mid = str(model_id).strip() if model_id else None
+    return pool, mid
 
 
 def _raise_provider(exc: httpx.RequestError, endpoint: str) -> None:
@@ -29,6 +42,97 @@ def _raise_provider(exc: httpx.RequestError, endpoint: str) -> None:
         f"無法連線至 Gemini {endpoint}: {exc}",
         failure_kind="connection_error",
     ) from exc
+
+
+def _headers_mapping(response: httpx.Response) -> dict[str, str]:
+    return {k: v for k, v in response.headers.items()}
+
+
+def build_generate_content_url(
+    model: str,
+    *,
+    base_url: str | None = None,
+) -> str:
+    """
+    組出 Google AI Studio ``generateContent`` URL。
+
+    範例：``.../v1beta/models/gemini-3.5-flash:generateContent``
+    （模型名稱由 ``model`` / 池輪換的 ``model_id`` 決定）
+    """
+    base = _normalize_base(base_url or _DEFAULT_BASE)
+    model_id = model.strip()
+    if not model_id:
+        raise ProviderError("Gemini model 名稱不可為空")
+    return f"{base}/models/{model_id}:generateContent"
+
+
+def _request_headers(api_key: str) -> dict[str, str]:
+    """Google 建議以 ``X-Goog-Api-Key`` 傳遞 API Key（亦可使用 ``?key=``，本專案採 Header）。"""
+    return {
+        "Content-Type": "application/json",
+        _GOOG_API_KEY_HEADER: api_key,
+    }
+
+
+def _notify_pool(
+    pool: Any,
+    model_id: str | None,
+    headers: Mapping[str, str],
+    *,
+    status_code: int,
+    body: str,
+) -> None:
+    if pool is None or not model_id:
+        return
+    pool.apply_headers(model_id, headers, status_code=status_code, body=body)
+
+
+def _post_generate_content(
+    *,
+    endpoint: str,
+    payload: dict[str, Any],
+    api_key: str,
+    timeout: float,
+    pool: Any | None = None,
+    notify_model_id: str | None = None,
+) -> httpx.Response:
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(
+                endpoint,
+                json=payload,
+                headers=_request_headers(api_key),
+            )
+    except httpx.RequestError as exc:
+        _raise_provider(exc, endpoint)
+
+    headers = _headers_mapping(response)
+    body_text = response.text if response.status_code >= 400 else ""
+
+    if response.status_code < 400:
+        # 方案三：成功回應依 Header 同步（可能偏低，若仍 429 由 apply_headers 上調至官方滿額）
+        _notify_pool(pool, notify_model_id, headers, status_code=response.status_code, body="")
+        return response
+
+    rate_info = parse_rate_limit_from_response(
+        headers, status_code=response.status_code, body=body_text
+    )
+    # 429：先通知池上調本地計數（官方/Header/自訂上限取 max），再拋錯供 router 換模型
+    _notify_pool(
+        pool,
+        notify_model_id,
+        headers,
+        status_code=response.status_code,
+        body=body_text,
+    )
+    detail = body_text.strip() or response.reason_phrase
+    failure_kind = "rate_limit" if response.status_code == 429 else "http"
+    raise ProviderError(
+        f"Gemini 回傳錯誤 {response.status_code}: {detail}",
+        status_code=response.status_code,
+        failure_kind=failure_kind,
+        retry_after_seconds=rate_info.retry_after_seconds,
+    )
 
 
 def chat_completions_raw(
@@ -43,29 +147,22 @@ def chat_completions_raw(
     if not api_key:
         raise ProviderError("Gemini 需要 api_key（設定 GEMINI_API_KEY 或 config）")
 
-    base = _normalize_base(
-        base_url or "https://generativelanguage.googleapis.com/v1beta"
-    )
+    pool, notify_model_id = _pop_internal_extra(extra)
     system_instruction, contents = to_gemini_request(messages)
 
     payload: dict[str, Any] = {"contents": contents, **extra}
     if system_instruction:
         payload["systemInstruction"] = system_instruction
 
-    endpoint = f"{base}/models/{model}:generateContent"
-    try:
-        with httpx.Client(timeout=timeout) as client:
-            response = client.post(endpoint, json=payload, params={"key": api_key})
-    except httpx.RequestError as exc:
-        _raise_provider(exc, endpoint)
-
-    if response.status_code >= 400:
-        detail = response.text.strip() or response.reason_phrase
-        raise ProviderError(
-            f"Gemini 回傳錯誤 {response.status_code}: {detail}",
-            status_code=response.status_code,
-            failure_kind="http",
-        )
+    endpoint = build_generate_content_url(model, base_url=base_url)
+    response = _post_generate_content(
+        endpoint=endpoint,
+        payload=payload,
+        api_key=api_key,
+        timeout=timeout,
+        pool=pool,
+        notify_model_id=notify_model_id or model,
+    )
 
     data = response.json()
     if not isinstance(data, dict):
@@ -82,31 +179,24 @@ def chat_completions(
     timeout: float = DEFAULT_TIMEOUT,
     **extra: Any,
 ) -> str:
-    base = _normalize_base(
-        base_url or "https://generativelanguage.googleapis.com/v1beta"
-    )
     if not api_key:
         raise ProviderError("Gemini 需要 api_key（設定 GEMINI_API_KEY 或 config）")
 
+    pool, notify_model_id = _pop_internal_extra(extra)
     system_instruction, contents = to_gemini_request(messages)
     payload: dict[str, Any] = {"contents": contents, **extra}
     if system_instruction:
         payload["systemInstruction"] = system_instruction
 
-    endpoint = f"{base}/models/{model}:generateContent"
-    try:
-        with httpx.Client(timeout=timeout) as client:
-            response = client.post(endpoint, json=payload, params={"key": api_key})
-    except httpx.RequestError as exc:
-        _raise_provider(exc, endpoint)
-
-    if response.status_code >= 400:
-        detail = response.text.strip() or response.reason_phrase
-        raise ProviderError(
-            f"Gemini 回傳錯誤 {response.status_code}: {detail}",
-            status_code=response.status_code,
-            failure_kind="http",
-        )
+    endpoint = build_generate_content_url(model, base_url=base_url)
+    response = _post_generate_content(
+        endpoint=endpoint,
+        payload=payload,
+        api_key=api_key,
+        timeout=timeout,
+        pool=pool,
+        notify_model_id=notify_model_id or model,
+    )
 
     data = response.json()
     if not isinstance(data, dict):

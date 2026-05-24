@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
@@ -16,7 +18,12 @@ from aicentral.providers.registry import get_provider_module
 from aicentral.routing.gemini_pool import get_gemini_pool, reset_gemini_pools
 from aicentral.routing.parser import parse_model
 
+logger = logging.getLogger(__name__)
+
 KNOWN_PROVIDERS = frozenset({"ollama", "openai", "anthropic", "gemini"})
+
+_GEMINI_POOL_KEY = "_gemini_pool"
+_GEMINI_MODEL_ID_KEY = "_gemini_model_id"
 
 
 def effective_model(
@@ -209,10 +216,15 @@ def _invoke_with_gemini_pool(
     pool = get_gemini_pool(resolved.gemini_pool, settings)
     call_extra = dict(extra or {})
     last_exc: ProviderError | None = None
-    while True:
+    attempts = 0
+    max_attempts = max(len(pool.models) * 3, 1)
+    while attempts < max_attempts:
+        attempts += 1
         model_id = pool.acquire()
+        call_extra[_GEMINI_POOL_KEY] = pool
+        call_extra[_GEMINI_MODEL_ID_KEY] = model_id
         try:
-            return _invoke_provider_once(
+            result = _invoke_provider_once(
                 resolved,
                 messages,
                 stream=stream,
@@ -220,10 +232,21 @@ def _invoke_with_gemini_pool(
                 model_id=model_id,
                 extra=call_extra,
             )
+            pool.reset_429_backoff()
+            return result
         except ProviderError as exc:
             last_exc = exc
             if _is_rate_limit_error(exc):
+                # 方案四：退讓後換模型；計數已在 gemini.apply_headers(429) 上調，此處再保險一次
                 pool.mark_minute_exhausted(model_id)
+                wait_s = pool.backoff_seconds_for_429(exc.retry_after_seconds)
+                logger.warning(
+                    "Gemini 429（%s），%.1fs 後切換下一模型（池 %s）",
+                    model_id,
+                    wait_s,
+                    resolved.gemini_pool,
+                )
+                time.sleep(wait_s)
                 continue
             raise
     assert last_exc is not None

@@ -17,7 +17,11 @@ defaults:
 # - 多個 model：依序輪換；本分鐘用盡則切下一個；全滿則等到下一分鐘
 gemini_pools:
   default:
+    # wait_poll_seconds 已棄用；全池滿時依「上次請求」所在分鐘的結束時間等待
     wait_poll_seconds: 1.0
+    # 429 指數退讓（gemini-limit.md 方案四）；有 Retry-After 標頭時優先採用
+    retry_initial_seconds: 2.0
+    retry_max_seconds: 32.0
     models:
       # gemini-3.5-flash — rpm 15, tpm 1_000_000, rpd 1500
       - model_id: gemini-3.5-flash

@@ -20,10 +20,12 @@ class ProviderError(AICentralError):
         *,
         status_code: int | None = None,
         failure_kind: str | None = None,
+        retry_after_seconds: float | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.failure_kind = failure_kind
+        self.retry_after_seconds = retry_after_seconds
 
     def is_fallback_eligible(self, fallback_on: list[str]) -> bool:
         """是否適用 router fallback（connection_error / timeout）。"""

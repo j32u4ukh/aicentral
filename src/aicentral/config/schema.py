@@ -58,7 +58,17 @@ class GeminiPoolSettings(BaseModel):
     wait_poll_seconds: float = Field(
         default=1.0,
         ge=0.1,
-        description="全池本分鐘用盡時，最短睡眠秒數（實際會等到下一分鐘邊界）",
+        description="已棄用：全池滿時改依 last_request 所在分鐘結束時間 sleep，保留欄位僅相容舊 yaml",
+    )
+    retry_initial_seconds: float = Field(
+        default=2.0,
+        ge=0.0,
+        description="429 無 Retry-After 時指數退讓起始秒數（gemini-limit 方案四）",
+    )
+    retry_max_seconds: float = Field(
+        default=32.0,
+        ge=0.1,
+        description="429 指數退讓上限秒數",
     )
 
 
