@@ -228,6 +228,80 @@ class GeminiPoolLimiter:
         counters.minute_count += 1
         counters.day_count += 1
 
+    def release_failed_attempt(
+        self,
+        model_id: str,
+        *,
+        now: float | None = None,
+        reason: str = "503",
+    ) -> None:
+        """
+        撤回 ``acquire()`` 對未成功請求的預留（如 503 UNAVAILABLE）。
+
+        Google 端超載不計入 RPM/RPD；本地亦不得保留該次 ``minute_count`` / ``day_count``。
+        """
+        t = now if now is not None else time.time()
+        with self._lock:
+            entry = next((m for m in self.models if m.model_id == model_id), None)
+            if entry is None:
+                return
+            counters = self._counters_for(model_id)
+            self._sync_epochs(counters, now=t)
+            before_min = counters.minute_count
+            before_day = counters.day_count
+            if counters.minute_count > 0:
+                counters.minute_count -= 1
+            if counters.day_count > 0:
+                counters.day_count -= 1
+            if self._total_calls > 0:
+                self._total_calls -= 1
+            if (
+                before_min != counters.minute_count
+                or before_day != counters.day_count
+            ):
+                logger.info(
+                    "gemini_pool %s %s 撤回預留計數 %s: minute %s→%s, day %s→%s",
+                    self.name,
+                    reason,
+                    model_id,
+                    before_min,
+                    counters.minute_count,
+                    before_day,
+                    counters.day_count,
+                )
+            self._persist_store()
+
+    def acquire_excluding(self, exclude: set[str]) -> str | None:
+        """
+        自 ``model_index`` 起輪詢，跳過 ``exclude`` 內模型，選第一個未達上限者。
+
+        用於 503 後立刻嘗試池內下一個模型（不 sleep）。
+        """
+        if not self.models:
+            return None
+        now = time.time()
+        with self._lock:
+            n = len(self.models)
+            start = self._model_index % n
+            for offset in range(n):
+                idx = (start + offset) % n
+                entry = self.models[idx]
+                if entry.model_id in exclude:
+                    continue
+                if self._under_limit(entry, now=now):
+                    self._reserve(entry, now=now)
+                    self._model_index = (idx + 1) % n
+                    self._total_calls += 1
+                    self._persist_store()
+                    logger.debug(
+                        "gemini_pool %s 選用 %s（排除 %s）",
+                        self.name,
+                        entry.model_id,
+                        sorted(exclude),
+                    )
+                    return entry.model_id
+        return None
+
     def _apply_rate_limit_penalty_locked(
         self,
         model_id: str,

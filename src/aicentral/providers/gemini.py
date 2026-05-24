@@ -138,6 +138,16 @@ def _post_generate_content(
         _notify_pool(pool, notify_model_id, headers, status_code=response.status_code, body="")
         return response
 
+    detail = body_text.strip() or response.reason_phrase
+
+    # 503：Google 端超載，未實質計入配額；不通知池、由 router 換下一模型
+    if response.status_code == 503:
+        raise ProviderError(
+            f"Gemini 回傳錯誤 503: {detail}",
+            status_code=503,
+            failure_kind="unavailable",
+        )
+
     rate_info = parse_rate_limit_from_response(
         headers, status_code=response.status_code, body=body_text
     )
@@ -149,7 +159,6 @@ def _post_generate_content(
         status_code=response.status_code,
         body=body_text,
     )
-    detail = body_text.strip() or response.reason_phrase
     failure_kind = "rate_limit" if response.status_code == 429 else "http"
     raise ProviderError(
         f"Gemini 回傳錯誤 {response.status_code}: {detail}",

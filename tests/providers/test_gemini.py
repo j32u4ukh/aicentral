@@ -124,6 +124,39 @@ def test_chat_completions_429_sets_retry_after() -> None:
             raise AssertionError("expected ProviderError")
 
 
+def test_503_does_not_notify_pool() -> None:
+    mock_pool = MagicMock()
+    mock_response = MagicMock()
+    mock_response.status_code = 503
+    mock_response.text = '{"error":{"code":503,"message":"high demand"}}'
+    mock_response.reason_phrase = "Service Unavailable"
+    mock_response.headers = {}
+
+    mock_client = MagicMock()
+    mock_client.__enter__.return_value = mock_client
+    mock_client.post.return_value = mock_response
+
+    with patch("aicentral.providers.gemini.httpx.Client", return_value=mock_client):
+        from aicentral.core.errors import ProviderError
+
+        try:
+            chat_completions(
+                messages=[{"role": "user", "content": "hi"}],
+                model="gemini-2.5-flash",
+                api_key="gem-key",
+                **{
+                    "_gemini_pool": mock_pool,
+                    "_gemini_model_id": "gemini-2.5-flash",
+                },
+            )
+        except ProviderError as exc:
+            assert exc.status_code == 503
+            assert exc.failure_kind == "unavailable"
+        else:
+            raise AssertionError("expected ProviderError")
+    mock_pool.apply_headers.assert_not_called()
+
+
 def test_chat_completions_raw_openai_shape() -> None:
     mock_response = MagicMock()
     mock_response.status_code = 200

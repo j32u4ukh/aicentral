@@ -169,6 +169,16 @@ def _is_rate_limit_error(exc: ProviderError) -> bool:
     return "rate limit" in msg or "quota" in msg or "resource exhausted" in msg
 
 
+def _is_unavailable_error(exc: ProviderError) -> bool:
+    """503 等暫時性超載：不計本地配額，立刻換池內下一模型。"""
+    if exc.status_code == 503:
+        return True
+    if exc.failure_kind == "unavailable":
+        return True
+    msg = str(exc).lower()
+    return "unavailable" in msg or "high demand" in msg
+
+
 def _invoke_provider_once(
     resolved: ResolvedCall,
     messages: list[Message],
@@ -216,11 +226,19 @@ def _invoke_with_gemini_pool(
     pool = get_gemini_pool(resolved.gemini_pool, settings)
     call_extra = dict(extra or {})
     last_exc: ProviderError | None = None
+    unavailable_tried: set[str] = set()
     attempts = 0
-    max_attempts = max(len(pool.models) * 3, 1)
+    max_attempts = max(len(pool.models) * 4, 1)
+
     while attempts < max_attempts:
         attempts += 1
-        model_id = pool.acquire()
+        if unavailable_tried:
+            model_id = pool.acquire_excluding(unavailable_tried)
+            if model_id is None:
+                break
+        else:
+            model_id = pool.acquire()
+
         call_extra[_GEMINI_POOL_KEY] = pool
         call_extra[_GEMINI_MODEL_ID_KEY] = model_id
         try:
@@ -236,7 +254,25 @@ def _invoke_with_gemini_pool(
             return result
         except ProviderError as exc:
             last_exc = exc
+            if _is_unavailable_error(exc):
+                pool.release_failed_attempt(model_id, reason="503")
+                unavailable_tried.add(model_id)
+                logger.warning(
+                    "Gemini 503（%s），未計入配額，立刻嘗試下一模型（池 %s，已試 %s/%s）",
+                    model_id,
+                    resolved.gemini_pool,
+                    len(unavailable_tried),
+                    len(pool.models),
+                )
+                if len(unavailable_tried) >= len(pool.models):
+                    raise ProviderError(
+                        f"Gemini 池 {resolved.gemini_pool!r} 內所有模型皆暫時 503 不可用",
+                        status_code=503,
+                        failure_kind="unavailable",
+                    ) from exc
+                continue
             if _is_rate_limit_error(exc):
+                unavailable_tried.clear()
                 # 方案四：退讓後換模型；計數已在 gemini.apply_headers(429) 上調，此處再保險一次
                 pool.mark_minute_exhausted(model_id)
                 wait_s = pool.backoff_seconds_for_429(exc.retry_after_seconds)
@@ -249,8 +285,13 @@ def _invoke_with_gemini_pool(
                 time.sleep(wait_s)
                 continue
             raise
-    assert last_exc is not None
-    raise last_exc
+
+    if last_exc is not None:
+        raise last_exc
+    raise ProviderError(
+        f"Gemini 池 {resolved.gemini_pool!r} 無可用模型（可能皆達上限或已排除）",
+        failure_kind="rate_limit",
+    )
 
 
 def _provider_kwargs(
