@@ -121,6 +121,9 @@ def load_config(
     expanded = expand_config_value(raw, secrets)
     cfg = AICentralConfig.model_validate(expanded)
     _CONFIG = _merge_gateway_secrets(cfg, secrets)
+    from aicentral.routing.gemini_pool import reset_gemini_pools
+
+    reset_gemini_pools()
     return _CONFIG
 
 

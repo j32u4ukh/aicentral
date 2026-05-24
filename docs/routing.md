@@ -286,6 +286,26 @@ from aicentral import (
 
 ---
 
+## Gemini 模型池（`gemini_pools`）
+
+當 `model_list` 條目設 `provider: gemini` 且 `gemini_pool: <名稱>` 時，實際 `model_id` 由池輪換（非 `params.model_id`）。
+
+| 欄位（每個 model） | 說明 |
+|-------------------|------|
+| `model_id` | Google 模型名（如 `gemini-2.5-flash`） |
+| `rpm_official` / `rpm_limit` | 每分鐘上限：官方參考值 / 自訂保守值（**生效以 `rpm_limit` 為準**，未設則用官方） |
+| `rpd_official` / `rpd_limit` | 每日上限，規則同上 |
+
+行為：
+
+- **單一 model**：固定該模型；本分鐘或本日達限後等待下一分鐘（或拋出每日用盡錯誤）。
+- **多個 model**：依序使用；當前模型達 `rpm_limit` 後切下一個；全部達限則 `sleep` 至下一分鐘再從第一個重試。
+- API 回 **429** 時，該模型視為本分鐘已滿並自動嘗試池中下一個。
+
+設定範例見 `config/aicentral.yaml` 的 `gemini_pools` 與 `gemini-flash` 別名。
+
+---
+
 ## 刻意不做（v4.0）
 
 - 依延遲、成本、負載的自動路由（LiteLLM adaptive router）

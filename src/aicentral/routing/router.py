@@ -13,6 +13,7 @@ from aicentral.core.errors import ProviderError
 from aicentral.core.types import Message
 from aicentral.providers.credentials import resolve_credentials
 from aicentral.providers.registry import get_provider_module
+from aicentral.routing.gemini_pool import get_gemini_pool, reset_gemini_pools
 from aicentral.routing.parser import parse_model
 
 KNOWN_PROVIDERS = frozenset({"ollama", "openai", "anthropic", "gemini"})
@@ -76,10 +77,20 @@ class ResolvedCall:
     api_key: str | None
     api_version: str | None
     timeout: float
+    gemini_pool: str | None = None
 
 
 def _resolved_from_entry(entry: ModelEntry, cfg: AICentralConfig) -> ResolvedCall:
     base, key, version = resolve_credentials(entry.provider, entry.params)
+    pool_name = (entry.gemini_pool or "").strip() or None
+    if pool_name and entry.provider != "gemini":
+        raise ProviderError(
+            f"model_list.{entry.model_name!r} 設了 gemini_pool 但 provider 不是 gemini"
+        )
+    if pool_name and not cfg.gemini_pool_settings(pool_name):
+        raise ProviderError(
+            f"未定義 gemini_pools.{pool_name!r}（model {entry.model_name!r}）"
+        )
     return ResolvedCall(
         provider=entry.provider,
         model_id=entry.params.model_id,
@@ -88,6 +99,7 @@ def _resolved_from_entry(entry: ModelEntry, cfg: AICentralConfig) -> ResolvedCal
         api_key=key,
         api_version=version,
         timeout=entry.timeout or cfg.defaults.timeout,
+        gemini_pool=pool_name,
     )
 
 
@@ -141,6 +153,83 @@ def resolve_fallback_chain(
     return calls or [resolve_call(default_name, config=cfg)]
 
 
+def _is_rate_limit_error(exc: ProviderError) -> bool:
+    if exc.status_code == 429:
+        return True
+    if exc.failure_kind == "rate_limit":
+        return True
+    msg = str(exc).lower()
+    return "rate limit" in msg or "quota" in msg or "resource exhausted" in msg
+
+
+def _invoke_provider_once(
+    resolved: ResolvedCall,
+    messages: list[Message],
+    *,
+    stream: bool = False,
+    raw: bool = False,
+    model_id: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> str | Iterator[str] | dict[str, Any]:
+    """對單一 model_id 呼叫 provider（不含池輪換）。"""
+    call_extra = dict(extra or {})
+    effective = resolved
+    if model_id is not None and model_id != resolved.model_id:
+        effective = ResolvedCall(
+            provider=resolved.provider,
+            model_id=model_id,
+            model_label=resolved.model_label,
+            base_url=resolved.base_url,
+            api_key=resolved.api_key,
+            api_version=resolved.api_version,
+            timeout=resolved.timeout,
+            gemini_pool=None,
+        )
+    provider = get_provider_module(effective.provider)
+    call_kw = _provider_kwargs(effective, messages, call_extra)
+    if raw:
+        return provider.chat_completions_raw(**call_kw)
+    if stream:
+        return provider.chat_completions_stream(**call_kw)
+    return provider.chat_completions(**call_kw)
+
+
+def _invoke_with_gemini_pool(
+    resolved: ResolvedCall,
+    messages: list[Message],
+    *,
+    cfg: AICentralConfig,
+    stream: bool = False,
+    raw: bool = False,
+    extra: dict[str, Any] | None = None,
+) -> str | Iterator[str] | dict[str, Any]:
+    assert resolved.gemini_pool is not None
+    settings = cfg.gemini_pool_settings(resolved.gemini_pool)
+    assert settings is not None
+    pool = get_gemini_pool(resolved.gemini_pool, settings)
+    call_extra = dict(extra or {})
+    last_exc: ProviderError | None = None
+    while True:
+        model_id = pool.acquire()
+        try:
+            return _invoke_provider_once(
+                resolved,
+                messages,
+                stream=stream,
+                raw=raw,
+                model_id=model_id,
+                extra=call_extra,
+            )
+        except ProviderError as exc:
+            last_exc = exc
+            if _is_rate_limit_error(exc):
+                pool.mark_minute_exhausted(model_id)
+                continue
+            raise
+    assert last_exc is not None
+    raise last_exc
+
+
 def _provider_kwargs(
     resolved: ResolvedCall,
     messages: list[Message],
@@ -174,12 +263,28 @@ def complete_with_fallback(
 
     for i, resolved in enumerate(chain):
         attempted.append(resolved.model_label)
-        provider = get_provider_module(resolved.provider)
-        call_kw = _provider_kwargs(resolved, messages, dict(kwargs))
         try:
-            if stream:
-                return provider.chat_completions_stream(**call_kw)
-            return provider.chat_completions(**call_kw)
+            if resolved.gemini_pool:
+                if stream:
+                    raise ProviderError(
+                        "Gemini 模型池尚不支援串流",
+                        failure_kind="unsupported",
+                    )
+                return _invoke_with_gemini_pool(
+                    resolved,
+                    messages,
+                    cfg=cfg,
+                    stream=False,
+                    raw=False,
+                    extra=dict(kwargs),
+                )
+            return _invoke_provider_once(
+                resolved,
+                messages,
+                stream=stream,
+                raw=False,
+                extra=dict(kwargs),
+            )
         except ProviderError as exc:
             last_exc = exc
             if exc.is_fallback_eligible(cfg.router.fallback_on) and i < len(chain) - 1:
@@ -197,13 +302,38 @@ def invoke_resolved(
     *,
     stream: bool = False,
     raw: bool = False,
+    config: AICentralConfig | None = None,
     **kwargs: Any,
 ) -> str | Iterator[str] | dict[str, Any]:
-    """對已解析的單一 provider 發起呼叫（供 complete_structured）。"""
-    provider = get_provider_module(resolved.provider)
-    call_kw = _provider_kwargs(resolved, messages, dict(kwargs))
-    if raw:
-        return provider.chat_completions_raw(**call_kw)
-    if stream:
-        return provider.chat_completions_stream(**call_kw)
-    return provider.chat_completions(**call_kw)
+    """對已解析的單一 provider 發起呼叫（供 complete_structured / MCP）。"""
+    cfg = config or get_config()
+    if resolved.gemini_pool:
+        if stream:
+            raise ProviderError("Gemini 模型池尚不支援串流", failure_kind="unsupported")
+        return _invoke_with_gemini_pool(
+            resolved,
+            messages,
+            cfg=cfg,
+            stream=False,
+            raw=raw,
+            extra=dict(kwargs),
+        )
+    return _invoke_provider_once(
+        resolved,
+        messages,
+        stream=stream,
+        raw=raw,
+        extra=dict(kwargs),
+    )
+
+
+__all__ = [
+    "ResolvedCall",
+    "complete_with_fallback",
+    "effective_embedding_model",
+    "effective_model",
+    "invoke_resolved",
+    "reset_gemini_pools",
+    "resolve_call",
+    "resolve_fallback_chain",
+]

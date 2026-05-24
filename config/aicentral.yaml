@@ -10,6 +10,25 @@ defaults:
   timeout: 120
   structured_mode: tool
 
+# Gemini 多模型池：rpm/rpd 雙欄位（官方 + 自訂保守值）
+# - 僅一個 model：固定使用該模型，達限後等待下一分鐘
+# - 多個 model：依序輪換；本分鐘用盡則切下一個；全滿則等到下一分鐘
+gemini_pools:
+  default:
+    wait_poll_seconds: 1.0
+    models:
+      # 請依 Google AI Studio 配額填寫；rpm_limit / rpd_limit 建議低於官方
+      - model_id: gemini-2.0-flash
+        rpm_official: 15
+        rpm_limit: 12
+        rpd_official: 1500
+        rpd_limit: 1200
+      - model_id: gemini-2.5-flash
+        rpm_official: 10
+        rpm_limit: 8
+        rpd_official: 500
+        rpd_limit: 400
+
 model_list:
   - model_name: local-chat
     provider: ollama
@@ -42,8 +61,10 @@ model_list:
       api_key: secret/anthropic.api_key
       api_version: secret/anthropic.api_version
 
+  # 使用 gemini_pools.default 輪換；params.model_id 僅作文件/後備
   - model_name: gemini-flash
     provider: gemini
+    gemini_pool: default
     params:
       model_id: gemini-2.0-flash
       api_key: secret/gemini.api_key
