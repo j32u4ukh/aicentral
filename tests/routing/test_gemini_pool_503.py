@@ -111,3 +111,38 @@ def test_503_all_models_raises(mock_invoke: MagicMock) -> None:
         )
 
     assert mock_invoke.call_count == 2
+
+
+@patch("aicentral.routing.router.time.sleep")
+@patch("aicentral.routing.router._invoke_provider_once")
+def test_timeout_releases_reserve_and_switches_model(
+    mock_invoke: MagicMock,
+    mock_sleep: MagicMock,
+) -> None:
+    cfg = AICentralConfig(
+        gemini_pools={
+            "default": GeminiPoolSettings(
+                models=[
+                    GeminiPoolModelEntry(model_id="a", rpm_limit=5),
+                    GeminiPoolModelEntry(model_id="b", rpm_limit=5),
+                ],
+            ),
+        },
+    )
+    mock_invoke.side_effect = [
+        ProviderError("Gemini 請求逾時", failure_kind="timeout"),
+        "ok",
+    ]
+
+    result = _invoke_with_gemini_pool(
+        _resolved(),
+        [{"role": "user", "content": "hi"}],
+        cfg=cfg,
+    )
+
+    assert result == "ok"
+    assert mock_invoke.call_count == 2
+    models = [c.kwargs.get("model_id") for c in mock_invoke.call_args_list]
+    assert models[0] == "a"
+    assert models[1] == "b"
+    mock_sleep.assert_not_called()

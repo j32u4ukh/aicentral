@@ -106,6 +106,11 @@ class GeminiPoolLimiter:
                 counters.minute_count = int(row.get("minute_count", 0))
                 counters.day_epoch = int(row.get("day_epoch", 0))
                 counters.day_count = int(row.get("day_count", 0))
+        now = time.time()
+        for mid in self._model_ids():
+            self._sync_epochs(self._counters_for(mid), now=now)
+        # 對齊 yaml 模型鍵、過期分鐘/日窗口，並寫回檔案（避免重啟後 JSON 仍顯示舊 epoch）
+        self._persist_store()
         logger.info(
             "gemini_pool %s 已載入 %s：model_index=%s next=%s total_calls=%s",
             self.name,
@@ -387,6 +392,8 @@ class GeminiPoolLimiter:
                     reason="429+headers",
                 )
                 return
+            if status_code >= 400:
+                return
             entry = next((m for m in self.models if m.model_id == model_id), None)
             if entry is None:
                 return
@@ -396,6 +403,7 @@ class GeminiPoolLimiter:
             now = time.time()
             self._touch_last_success(now)
             if info.remaining_requests is None or rpm_cap is None:
+                self._persist_store()
                 return
             counters = self._counters_for(model_id)
             self._sync_epochs(counters, now=now)

@@ -46,10 +46,12 @@
 
 **實作邏輯：**
 
-1. **執行前讀取**：建立 `GeminiPoolLimiter` 時載入 JSON（`model_index`、各模型 `minute_*` / `day_*`）。
+1. **執行前讀取**：建立 `GeminiPoolLimiter` 時載入 JSON（`model_index`、各模型 `minute_*` / `day_*`），並對齊 yaml 模型鍵、執行分鐘/日 epoch 同步後**立即寫回**檔案。
 2. **選模型**：從 `model_index` 起輪詢池內模型；選中後 `model_index = (index + 1) % N` 並寫回檔案。
 3. **計數**：`acquire` 預留 + Header 同步 / 429 懲罰後更新各模型計數並持久化；`total_calls` 為全池累計呼叫次數。
-4. **分鐘/日重置**：依 `minute_epoch` / `day_epoch` 與目前時間比對，跨分鐘/跨日自動歸零（與記憶體邏輯相同）。
+4. **分鐘/日重置**：依 `minute_epoch` / `day_epoch` 與目前時間比對，跨分鐘/跨日自動歸零（載入時與執行時皆會同步）。
+5. **撤回預留**：503、連線錯誤、逾時等未計入 Google 配額的失敗會 `release_failed_attempt` 並寫回。
+6. **成功無 Header**：仍會更新並持久化 `last_success_time`（供跨程序全池等待計算）。
 
 範本：`config/rate_limit_store.example.json`（可提交版控）；實際計數檔預設在 `.gitignore`。
 

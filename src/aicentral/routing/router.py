@@ -179,6 +179,11 @@ def _is_unavailable_error(exc: ProviderError) -> bool:
     return "unavailable" in msg or "high demand" in msg
 
 
+def _is_non_billable_transport_error(exc: ProviderError) -> bool:
+    """連線/逾時：請求未送達或未完整完成，撤回 acquire 預留並換下一模型。"""
+    return exc.failure_kind in ("timeout", "connection_error")
+
+
 def _invoke_provider_once(
     resolved: ResolvedCall,
     messages: list[Message],
@@ -270,6 +275,16 @@ def _invoke_with_gemini_pool(
                         status_code=503,
                         failure_kind="unavailable",
                     ) from exc
+                continue
+            if _is_non_billable_transport_error(exc):
+                reason = exc.failure_kind or "transport"
+                pool.release_failed_attempt(model_id, reason=reason)
+                logger.warning(
+                    "Gemini %s（%s），未計入配額，立刻嘗試下一模型（池 %s）",
+                    reason,
+                    model_id,
+                    resolved.gemini_pool,
+                )
                 continue
             if _is_rate_limit_error(exc):
                 unavailable_tried.clear()
