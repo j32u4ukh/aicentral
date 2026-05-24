@@ -92,33 +92,41 @@ Google 官方**目前並沒有**提供可以直接給程式讀取的純 JSON、Y
     "free": {
       "description": "免費階層 (未綁定信用卡)",
       "models": {
+        "gemini-3.5-flash": { "rpm": 15, "tpm": 1000000, "rpd": 1500 },
+        "gemini-3.1-pro": { "rpm": 2, "tpm": 32000, "rpd": 50 },
+        "gemini-3.1-flash-lite": { "rpm": 30, "tpm": 2000000, "rpd": 1500 },
+        "gemini-3-flash": { "rpm": 15, "tpm": 1000000, "rpd": 1500 },
         "gemini-2.5-flash": { "rpm": 15, "tpm": 1000000, "rpd": 1500 },
         "gemini-2.5-flash-lite": { "rpm": 30, "tpm": 2000000, "rpd": 1500 },
-        "gemini-2.5-pro": { "rpm": 2, "tpm": 32000, "rpd": 50 },
-        "gemini-3.5-flash": { "rpm": 15, "tpm": 1000000, "rpd": 1500 }
+        "gemini-2.5-pro": { "rpm": 2, "tpm": 32000, "rpd": 50 }
       }
     },
     "tier_1": {
       "description": "付費第一階層 (已綁定計費帳戶/開卡)",
       "models": {
+        "gemini-3.5-flash": { "rpm": 300, "tpm": 2000000, "rpd": 1500 },
+        "gemini-3.1-pro": { "rpm": 360, "tpm": 2000000, "rpd": 1000 },
+        "gemini-3.1-flash-lite": { "rpm": 600, "tpm": 4000000, "rpd": 3000 },
+        "gemini-3-flash": { "rpm": 300, "tpm": 2000000, "rpd": 1500 },
         "gemini-2.5-flash": { "rpm": 300, "tpm": 2000000, "rpd": 1500 },
         "gemini-2.5-flash-lite": { "rpm": 600, "tpm": 4000000, "rpd": 3000 },
-        "gemini-2.5-pro": { "rpm": 360, "tpm": 2000000, "rpd": 1000 },
-        "gemini-3.5-flash": { "rpm": 300, "tpm": 2000000, "rpd": 1500 }
+        "gemini-2.5-pro": { "rpm": 360, "tpm": 2000000, "rpd": 1000 }
       }
     },
     "tier_2": {
       "description": "付費第二階層 (累積消費滿 $250 美元)",
       "models": {
+        "gemini-3.5-flash": { "rpm": 1000, "tpm": 4000000, "rpd": 10000 },
+        "gemini-3.1-pro": { "rpm": 1000, "tpm": 4000000, "rpd": 10000 },
+        "gemini-3.1-flash-lite": { "rpm": 2000, "tpm": 8000000, "rpd": 20000 },
+        "gemini-3-flash": { "rpm": 1000, "tpm": 4000000, "rpd": 10000 },
         "gemini-2.5-flash": { "rpm": 1000, "tpm": 4000000, "rpd": 10000 },
         "gemini-2.5-flash-lite": { "rpm": 2000, "tpm": 8000000, "rpd": 20000 },
-        "gemini-2.5-pro": { "rpm": 1000, "tpm": 4000000, "rpd": 10000 },
-        "gemini-3.5-flash": { "rpm": 1000, "tpm": 4000000, "rpd": 10000 }
+        "gemini-2.5-pro": { "rpm": 1000, "tpm": 4000000, "rpd": 10000 }
       }
     }
   }
 }
-
 ```
 
 *(欄位說明：`rpm` = 每分鐘請求數, `tpm` = 每分鐘 Token 數, `rpd` = 每日請求數。每日額度重置點為太平洋時間 PT 午夜)*

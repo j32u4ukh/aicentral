@@ -11,23 +11,56 @@ defaults:
   structured_mode: tool
 
 # Gemini 多模型池：rpm/rpd 雙欄位（官方 + 自訂保守值）
+# 官方配額來源：docs/gemini-limit.md → tiers.free（Google AI Studio 免費階層）
+# tpm 僅記於文件，輪換邏輯目前依 rpm/rpd 計數
 # - 僅一個 model：固定使用該模型，達限後等待下一分鐘
 # - 多個 model：依序輪換；本分鐘用盡則切下一個；全滿則等到下一分鐘
 gemini_pools:
   default:
     wait_poll_seconds: 1.0
     models:
-      # 請依 Google AI Studio 配額填寫；rpm_limit / rpd_limit 建議低於官方
-      - model_id: gemini-2.0-flash
+      # gemini-3.5-flash — rpm 15, tpm 1_000_000, rpd 1500
+      - model_id: gemini-3.5-flash
         rpm_official: 15
         rpm_limit: 12
         rpd_official: 1500
         rpd_limit: 1200
+      # gemini-3.1-pro — rpm 2, tpm 32_000, rpd 50
+      - model_id: gemini-3.1-pro
+        rpm_official: 2
+        rpm_limit: 1
+        rpd_official: 50
+        rpd_limit: 40
+      # gemini-3.1-flash-lite — rpm 30, tpm 2_000_000, rpd 1500
+      - model_id: gemini-3.1-flash-lite
+        rpm_official: 30
+        rpm_limit: 24
+        rpd_official: 1500
+        rpd_limit: 1200
+      # gemini-3-flash — rpm 15, tpm 1_000_000, rpd 1500
+      - model_id: gemini-3-flash
+        rpm_official: 15
+        rpm_limit: 12
+        rpd_official: 1500
+        rpd_limit: 1200
+      # gemini-2.5-flash — rpm 15, tpm 1_000_000, rpd 1500
       - model_id: gemini-2.5-flash
-        rpm_official: 10
-        rpm_limit: 8
-        rpd_official: 500
-        rpd_limit: 400
+        rpm_official: 15
+        rpm_limit: 12
+        rpd_official: 1500
+        rpd_limit: 1200
+      # gemini-2.5-flash-lite — rpm 30, tpm 2_000_000, rpd 1500
+      - model_id: gemini-2.5-flash-lite
+        rpm_official: 30
+        rpm_limit: 24
+        rpd_official: 1500
+        rpd_limit: 1200
+      # gemini-2.5-pro — rpm 2, tpm 32_000, rpd 50
+      - model_id: gemini-2.5-pro
+        rpm_official: 2
+        rpm_limit: 1
+        rpd_official: 50
+        rpd_limit: 40
 
 model_list:
   - model_name: local-chat
@@ -66,7 +99,7 @@ model_list:
     provider: gemini
     gemini_pool: default
     params:
-      model_id: gemini-2.0-flash
+      model_id: gemini-3.5-flash
       api_key: secret/gemini.api_key
       api_base: secret/gemini.api_base
 
